@@ -12,12 +12,12 @@ mod preprocess;
 mod search;
 mod types;
 
-use std::path::{Path, PathBuf};
 use clap::Parser;
 use cli::{Cli, CollectionCmd, Command, DaemonCmd, PreprocessorCmd, output};
-use get::{DocContent, MultiGetResult};
 use config::{Config, collection_db_path};
 use error::Result;
+use get::{DocContent, MultiGetResult};
+use std::path::{Path, PathBuf};
 use types::{Collection, SearchMode};
 
 fn ko_default_routing() -> types::RoutingConfig {
@@ -74,29 +74,46 @@ fn run() -> Result<()> {
             verbose,
             quiet,
             filter,
-        } => {
-            handle_search(
-                query.join(" "),
-                mode,
-                if all { crate::db::vectors::KNN_MAX } else { limit },
-                min_score,
-                collections,
-                full,
-                chunk,
-                json,
-                csv,
-                md,
-                files,
-                if verbose { types::Verbosity::Verbose } else if quiet { types::Verbosity::Quiet } else { types::Verbosity::Normal },
-                filter,
-            )
-        }
-        Command::Get { target, collections, section, offset, max_chars, json } => {
-            handle_get(target, collections, section, offset, max_chars, json)
-        }
-        Command::MultiGet { targets, collections, max_chars, json, files } => {
-            handle_multi_get(targets, collections, max_chars, json, files)
-        }
+        } => handle_search(
+            query.join(" "),
+            mode,
+            if all {
+                crate::db::vectors::KNN_MAX
+            } else {
+                limit
+            },
+            min_score,
+            collections,
+            full,
+            chunk,
+            json,
+            csv,
+            md,
+            files,
+            if verbose {
+                types::Verbosity::Verbose
+            } else if quiet {
+                types::Verbosity::Quiet
+            } else {
+                types::Verbosity::Normal
+            },
+            filter,
+        ),
+        Command::Get {
+            target,
+            collections,
+            section,
+            offset,
+            max_chars,
+            json,
+        } => handle_get(target, collections, section, offset, max_chars, json),
+        Command::MultiGet {
+            targets,
+            collections,
+            max_chars,
+            json,
+            files,
+        } => handle_multi_get(targets, collections, max_chars, json, files),
         Command::Daemon { cmd } => match cmd {
             DaemonCmd::Start { timeout } => daemon::start_server(timeout),
             DaemonCmd::Stop => daemon::stop(),
@@ -172,7 +189,10 @@ fn handle_multi_get(
     }
     let has_missing = !not_found.is_empty();
     if json {
-        println!("{}", serde_json::to_string_pretty(&MultiGetResult { found, not_found })?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&MultiGetResult { found, not_found })?
+        );
     } else {
         if files {
             for doc in &found {
@@ -180,7 +200,9 @@ fn handle_multi_get(
             }
         } else {
             for (i, doc) in found.iter().enumerate() {
-                if i > 0 { println!("---"); }
+                if i > 0 {
+                    println!("---");
+                }
                 eprintln!("[{}] {}", doc.collection, doc.path);
                 print!("{}", doc.content);
             }
@@ -221,7 +243,11 @@ fn handle_collection(cmd: CollectionCmd) -> Result<()> {
                 globs: glob,
                 excludes: exclude,
                 description,
-                preprocessor: if preprocessor.is_empty() { None } else { Some(preprocessor) },
+                preprocessor: if preprocessor.is_empty() {
+                    None
+                } else {
+                    Some(preprocessor)
+                },
                 routing: None,
             })?;
             config.save()?;
@@ -258,7 +284,9 @@ fn handle_collection(cmd: CollectionCmd) -> Result<()> {
                 println!("no collections configured");
             } else {
                 for c in &config.collections {
-                    let pp = c.preprocessor.as_ref()
+                    let pp = c
+                        .preprocessor
+                        .as_ref()
                         .filter(|v| !v.is_empty())
                         .map(|v| format!("  [{}]", v.join(", ")))
                         .unwrap_or_default();
@@ -343,10 +371,12 @@ pub(crate) fn search_core(
     };
     let daemon_warmup_started = !daemon_was_running && daemon_warmup_error.is_none();
 
-    let cols: Vec<_> = collection_names.iter()
+    let cols: Vec<_> = collection_names
+        .iter()
         .filter_map(|name| config.get_collection(name))
         .collect();
-    let dbs: Vec<db::CollectionDb> = cols.iter()
+    let dbs: Vec<db::CollectionDb> = cols
+        .iter()
         .map(|c| {
             let pp_aliases = c.preprocessor.as_deref().unwrap_or(&[]);
             let pp_commands = config.resolve_preprocessor_commands(pp_aliases);
@@ -384,9 +414,17 @@ pub(crate) fn search_core(
     // Activated by IR_BENCH_SIGNALS=1; no-op in normal use.
     if std::env::var("IR_BENCH_SIGNALS").is_ok() {
         let top = bm25_results.first().map(|r| r.score).unwrap_or(0.0);
-        let gap = if bm25_results.len() >= 2 { top - bm25_results[1].score } else { top };
+        let gap = if bm25_results.len() >= 2 {
+            top - bm25_results[1].score
+        } else {
+            top
+        };
         // Emit top-10 scores for relative dominance and percentile analysis
-        let scores: Vec<String> = bm25_results.iter().take(10).map(|r| format!("{:.6}", r.score)).collect();
+        let scores: Vec<String> = bm25_results
+            .iter()
+            .take(10)
+            .map(|r| format!("{:.6}", r.score))
+            .collect();
         if scores.is_empty() {
             eprintln!("SIGNAL_BM25\t{top:.6}\t{gap:.6}");
         } else {
@@ -428,7 +466,9 @@ pub(crate) fn search_core(
             if verbosity.show_progress() {
                 eprintln!("note: could not start daemon ({e})");
                 if bm25_results.is_empty() {
-                    eprintln!("note: BM25 also found nothing — run `ir embed <collection>` to enable vector search");
+                    eprintln!(
+                        "note: BM25 also found nothing — run `ir embed <collection>` to enable vector search"
+                    );
                 }
             }
             return Ok(bm25_results);
@@ -461,14 +501,22 @@ pub(crate) fn search_core(
         }
     };
 
-    if verbosity.show_progress() { eprint!("searching..."); }
+    if verbosity.show_progress() {
+        eprint!("searching...");
+    }
     // When BM25 found nothing, the daemon is the only source of results — wait longer.
-    let wait_ms = if bm25_results.is_empty() { 10_000 } else { 3_000 };
+    let wait_ms = if bm25_results.is_empty() {
+        10_000
+    } else {
+        3_000
+    };
     if !daemon::wait_ready(wait_ms) {
         if verbosity.show_progress() {
             eprintln!();
             if bm25_results.is_empty() {
-                eprintln!("note: BM25 found no results and daemon not ready — try `ir embed <collection>` or check model paths");
+                eprintln!(
+                    "note: BM25 found no results and daemon not ready — try `ir embed <collection>` or check model paths"
+                );
             }
         }
         return Ok(bm25_results);
@@ -490,7 +538,9 @@ pub(crate) fn search_core(
     };
 
     if tier2_before || search_mode != SearchMode::Hybrid {
-        if verbosity.show_progress() { eprintln!(); }
+        if verbosity.show_progress() {
+            eprintln!();
+        }
         log_lines(&tier1.log);
         return Ok(to_search_results(tier1.results));
     }
@@ -504,26 +554,36 @@ pub(crate) fn search_core(
             strong_signal_product,
         )
     {
-        if verbosity.show_progress() { eprintln!(); }
+        if verbosity.show_progress() {
+            eprintln!();
+        }
         log_lines(&tier1_log);
         return Ok(tier1_results);
     }
 
-    if verbosity.show_progress() { eprint!(" enhancing..."); }
+    if verbosity.show_progress() {
+        eprint!(" enhancing...");
+    }
     if !daemon::wait_tier2(7_000) {
-        if verbosity.show_progress() { eprintln!(); }
+        if verbosity.show_progress() {
+            eprintln!();
+        }
         log_lines(&tier1_log);
         return Ok(tier1_results);
     }
 
     match daemon::query(&req) {
         Ok(tier2) => {
-            if verbosity.show_progress() { eprintln!(); }
+            if verbosity.show_progress() {
+                eprintln!();
+            }
             log_lines(&tier2.log);
             Ok(to_search_results(tier2.results))
         }
         Err(_) => {
-            if verbosity.show_progress() { eprintln!(); }
+            if verbosity.show_progress() {
+                eprintln!();
+            }
             log_lines(&tier1_log);
             Ok(tier1_results)
         }
@@ -560,17 +620,27 @@ fn handle_search(
         output::Format::Pretty
     };
 
-    let mut results = search_core(&query, &mode, limit, min_score, &collection_filter, verbosity, filter)?;
+    let mut results = search_core(
+        &query,
+        &mode,
+        limit,
+        min_score,
+        &collection_filter,
+        verbosity,
+        filter,
+    )?;
 
     if full {
         let config = Config::load()?;
-        let cols: Vec<_> = results.iter()
+        let cols: Vec<_> = results
+            .iter()
             .map(|r| r.collection.as_str())
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .filter_map(|name| config.get_collection(name))
             .collect();
-        let dbs: Vec<db::CollectionDb> = cols.iter()
+        let dbs: Vec<db::CollectionDb> = cols
+            .iter()
             .map(|c| {
                 let pp_aliases = c.preprocessor.as_deref().unwrap_or(&[]);
                 let pp_commands = config.resolve_preprocessor_commands(pp_aliases);
@@ -592,13 +662,18 @@ fn handle_search(
 }
 
 fn to_search_results(daemon_results: Vec<daemon::DaemonResult>) -> Vec<types::SearchResult> {
-    daemon_results.into_iter()
+    daemon_results
+        .into_iter()
         .map(|r| types::SearchResult {
             collection: r.collection,
             path: r.path,
             title: r.title,
             score: r.score,
-            snippet: if r.snippet.is_empty() { None } else { Some(r.snippet) },
+            snippet: if r.snippet.is_empty() {
+                None
+            } else {
+                Some(r.snippet)
+            },
             hash: r.hash,
             doc_id: r.doc_id,
             content: None,
@@ -606,7 +681,6 @@ fn to_search_results(daemon_results: Vec<daemon::DaemonResult>) -> Vec<types::Se
         })
         .collect()
 }
-
 
 pub(crate) fn fill_content(results: &mut [types::SearchResult], dbs: &[db::CollectionDb]) {
     let db_map: std::collections::HashMap<&str, &db::CollectionDb> =
@@ -617,7 +691,10 @@ pub(crate) fn fill_content(results: &mut [types::SearchResult], dbs: &[db::Colle
         std::collections::HashMap::new();
     for r in results.iter() {
         if db_map.contains_key(r.collection.as_str()) {
-            per_col.entry(r.collection.clone()).or_default().push(r.hash.clone());
+            per_col
+                .entry(r.collection.clone())
+                .or_default()
+                .push(r.hash.clone());
         }
     }
 
@@ -692,7 +769,9 @@ fn handle_preprocessor(cmd: PreprocessorCmd) -> Result<()> {
                 .filter(|k| !config.preprocessors.contains_key(k.alias))
                 .collect();
             if !uninstalled.is_empty() {
-                if !entries.is_empty() { println!(); }
+                if !entries.is_empty() {
+                    println!();
+                }
                 println!("available (ir preprocessor install <lang>):");
                 for k in uninstalled {
                     println!("  {:<10} {}", k.alias, k.description);
@@ -703,11 +782,14 @@ fn handle_preprocessor(cmd: PreprocessorCmd) -> Result<()> {
         }
         PreprocessorCmd::Bind { alias, collection } => {
             if !config.preprocessors.contains_key(&alias) {
-                let known_aliases: Vec<&str> = known_preprocessors().iter().map(|k| k.alias).collect();
+                let known_aliases: Vec<&str> =
+                    known_preprocessors().iter().map(|k| k.alias).collect();
                 let hint = if known_aliases.contains(&alias.as_str()) {
                     format!("run: ir preprocessor install {alias}")
                 } else {
-                    format!("run: ir preprocessor add {alias} <command>  (or `ir preprocessor list` to see options)")
+                    format!(
+                        "run: ir preprocessor add {alias} <command>  (or `ir preprocessor list` to see options)"
+                    )
                 };
                 return Err(error::Error::Other(format!(
                     "preprocessor alias '{alias}' not registered — {hint}"
@@ -718,11 +800,15 @@ fn handle_preprocessor(cmd: PreprocessorCmd) -> Result<()> {
                 None => pick_collections_for_bind(&config, &alias)?,
             };
             for name in targets {
-                let col = config.collections.iter_mut()
+                let col = config
+                    .collections
+                    .iter_mut()
                     .find(|c| c.name == name)
                     .ok_or_else(|| error::Error::Other(format!("collection '{name}' not found")))?;
                 let pp = col.preprocessor.get_or_insert_with(Vec::new);
-                if !pp.contains(&alias) { pp.push(alias.clone()); }
+                if !pp.contains(&alias) {
+                    pp.push(alias.clone());
+                }
                 apply_bind_defaults(col, &alias);
                 config.save()?;
                 println!("bound '{alias}' to '{name}', re-indexing…");
@@ -732,15 +818,21 @@ fn handle_preprocessor(cmd: PreprocessorCmd) -> Result<()> {
             }
         }
         PreprocessorCmd::Unbind { alias, collection } => {
-            let col = config.collections.iter_mut()
+            let col = config
+                .collections
+                .iter_mut()
                 .find(|c| c.name == collection)
-                .ok_or_else(|| error::Error::Other(format!("collection '{collection}' not found")))?;
+                .ok_or_else(|| {
+                    error::Error::Other(format!("collection '{collection}' not found"))
+                })?;
             let pp = col.preprocessor.get_or_insert_with(Vec::new);
             if !pp.contains(&alias) {
                 println!("'{alias}' not bound to '{collection}'");
             } else {
                 pp.retain(|a| a != &alias);
-                if pp.is_empty() { col.preprocessor = None; }
+                if pp.is_empty() {
+                    col.preprocessor = None;
+                }
                 clear_bind_defaults_if_auto(col, &alias);
                 config.save()?;
                 println!("unbound '{alias}' from '{collection}', re-indexing…");
@@ -751,9 +843,7 @@ fn handle_preprocessor(cmd: PreprocessorCmd) -> Result<()> {
             let cmd = config.preprocessors.get(&alias).cloned();
             config.remove_preprocessor(&alias)?;
             config.save()?;
-            if delete
-                && let Some(cmd_str) = cmd
-            {
+            if delete && let Some(cmd_str) = cmd {
                 let path = std::path::Path::new(&cmd_str);
                 let preprocess_dir = config::ir_dir().join("preprocessors");
                 if path.starts_with(&preprocess_dir) && path.is_file() {
@@ -784,13 +874,17 @@ fn known_preprocessors() -> &'static [KnownPreprocessor] {
             alias: "ko",
             description: "Korean morphological analysis (Lindera + ko-dic)",
             dict_name: "ko-dic",
-            token_filter: Some(r#"korean_stop_tags:{"tags":["JKS","JKC","JKG","JKO","JKB","JKV","JKQ","JX","JC","EP","EF","EC","ETN","ETM","XPN","XSN","XSV","XSA","SF","SP","SS","SE","SO","SW","SWK"]}"#),
+            token_filter: Some(
+                r#"korean_stop_tags:{"tags":["JKS","JKC","JKG","JKO","JKB","JKV","JKQ","JX","JC","EP","EF","EC","ETN","ETM","XPN","XSN","XSV","XSA","SF","SP","SS","SE","SO","SW","SWK"]}"#,
+            ),
         },
         KnownPreprocessor {
             alias: "ja",
             description: "Japanese morphological analysis (Lindera + ipadic)",
             dict_name: "ipadic",
-            token_filter: Some(r#"japanese_stop_tags:{"tags":["接続詞","助詞","助動詞","記号","フィラー","非言語音","その他,間投"]}"#),
+            token_filter: Some(
+                r#"japanese_stop_tags:{"tags":["接続詞","助詞","助動詞","記号","フィラー","非言語音","その他,間投"]}"#,
+            ),
         },
         KnownPreprocessor {
             alias: "zh",
@@ -809,35 +903,51 @@ fn pick_collections_for_bind(config: &Config, alias: &str) -> Result<Vec<String>
         println!("no collections configured");
         return Ok(vec![]);
     }
-    let items: Vec<String> = config.collections.iter().map(|c| {
-        let pp = match c.preprocessor.as_deref() {
-            Some(pp) if !pp.is_empty() => format!(" [{}]", pp.join(", ")),
-            _ => String::new(),
-        };
-        format!("{}{}", c.name, pp)
-    }).collect();
-    let defaults: Vec<bool> = config.collections.iter()
-        .map(|c| c.preprocessor.as_deref().unwrap_or(&[]).contains(&alias.to_string()))
+    let items: Vec<String> = config
+        .collections
+        .iter()
+        .map(|c| {
+            let pp = match c.preprocessor.as_deref() {
+                Some(pp) if !pp.is_empty() => format!(" [{}]", pp.join(", ")),
+                _ => String::new(),
+            };
+            format!("{}{}", c.name, pp)
+        })
+        .collect();
+    let defaults: Vec<bool> = config
+        .collections
+        .iter()
+        .map(|c| {
+            c.preprocessor
+                .as_deref()
+                .unwrap_or(&[])
+                .contains(&alias.to_string())
+        })
         .collect();
     let selections = dialoguer::MultiSelect::new()
-        .with_prompt(format!("bind '{alias}' to collections (space to toggle, enter to confirm)"))
+        .with_prompt(format!(
+            "bind '{alias}' to collections (space to toggle, enter to confirm)"
+        ))
         .items(&items)
         .defaults(&defaults)
         .interact()
         .map_err(|e| error::Error::Other(format!("prompt: {e}")))?;
-    Ok(selections.into_iter().map(|i| config.collections[i].name.clone()).collect())
+    Ok(selections
+        .into_iter()
+        .map(|i| config.collections[i].name.clone())
+        .collect())
 }
 
 /// Download official lindera CLI binary + language dictionary, register command.
 fn install_preprocessor(config: &mut Config, lang: &str) -> Result<()> {
     let known = known_preprocessors();
     let available: Vec<&str> = known.iter().map(|e| e.alias).collect();
-    let entry = known
-        .iter()
-        .find(|e| e.alias == lang)
-        .ok_or_else(|| error::Error::Other(
-            format!("unknown lang '{lang}'. Available: {}", available.join(", "))
-        ))?;
+    let entry = known.iter().find(|e| e.alias == lang).ok_or_else(|| {
+        error::Error::Other(format!(
+            "unknown lang '{lang}'. Available: {}",
+            available.join(", ")
+        ))
+    })?;
 
     let triple = lindera_platform_triple()?;
     let tag = LINDERA_VERSION;
@@ -850,9 +960,11 @@ fn install_preprocessor(config: &mut Config, lang: &str) -> Result<()> {
     let dict_path = install_lindera_dict(&preprocessors_dir, entry.dict_name, tag, version)?;
 
     // Store paths as $IR_DIR/preprocessors/... so config.yml is portable across machines.
-    let bin_rel = bin_path.strip_prefix(&preprocessors_dir)
+    let bin_rel = bin_path
+        .strip_prefix(&preprocessors_dir)
         .expect("install_lindera_binary returns path under preprocessors_dir");
-    let dict_rel = dict_path.strip_prefix(&preprocessors_dir)
+    let dict_rel = dict_path
+        .strip_prefix(&preprocessors_dir)
         .expect("install_lindera_dict returns path under preprocessors_dir");
     let mut cmd_str = format!(
         "$IR_DIR/preprocessors/{} tokenize --dict $IR_DIR/preprocessors/{} -o wakati -m decompose",
@@ -874,10 +986,15 @@ fn install_preprocessor(config: &mut Config, lang: &str) -> Result<()> {
         println!();
         let targets = pick_collections_for_bind(config, alias)?;
         for name in targets {
-            let col = config.collections.iter_mut()
-                .find(|c| c.name == name).unwrap();
+            let col = config
+                .collections
+                .iter_mut()
+                .find(|c| c.name == name)
+                .unwrap();
             let pp = col.preprocessor.get_or_insert_with(Vec::new);
-            if !pp.contains(&alias.to_string()) { pp.push(alias.to_string()); }
+            if !pp.contains(&alias.to_string()) {
+                pp.push(alias.to_string());
+            }
             apply_bind_defaults(col, alias);
             println!("bound '{alias}' to '{name}', re-indexing…");
             if let Err(e) = handle_update(Some(name.clone()), false) {
@@ -982,9 +1099,13 @@ fn download_file(url: &str, dest: &Path) -> Result<()> {
 
 fn extract_zip_flat(zip_path: &Path, dest_dir: &Path) -> Result<()> {
     let status = std::process::Command::new("unzip")
-        .args(["-o", "-j",
-               &zip_path.to_string_lossy(),
-               "-d", &dest_dir.to_string_lossy()])
+        .args([
+            "-o",
+            "-j",
+            &zip_path.to_string_lossy(),
+            "-d",
+            &dest_dir.to_string_lossy(),
+        ])
         .status()
         .map_err(|e| error::Error::Other(format!("unzip: {e}")))?;
     if !status.success() {

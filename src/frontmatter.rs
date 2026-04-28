@@ -19,7 +19,10 @@ pub(crate) fn find_block(doc: &str) -> Option<(&str, usize)> {
 
     let mut pos = 0;
     while pos <= content.len() {
-        let line_end = content[pos..].find('\n').map(|i| pos + i).unwrap_or(content.len());
+        let line_end = content[pos..]
+            .find('\n')
+            .map(|i| pos + i)
+            .unwrap_or(content.len());
         let line = content[pos..line_end].trim_end_matches('\r');
         if line == "---" || line == "..." {
             let yaml = &content[..pos];

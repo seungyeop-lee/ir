@@ -13,6 +13,7 @@ use rusqlite::ffi::{sqlite3, sqlite3_api_routines, sqlite3_auto_extension};
 use rusqlite::{Connection, OpenFlags};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::os::raw::c_char;
 use std::path::Path;
 use std::sync::Once;
 
@@ -30,7 +31,7 @@ pub fn ensure_sqlite_vec() {
         // *const () — if the signature changes, mismatched sizes fail at compile time.
         type ExtInit = unsafe extern "C" fn(
             *mut sqlite3,
-            *mut *mut i8,
+            *mut *mut c_char,
             *const sqlite3_api_routines,
         ) -> i32;
         unsafe {
@@ -92,10 +93,7 @@ impl CollectionDb {
     ) -> Result<Self> {
         ensure_sqlite_vec();
 
-        let conn = Connection::open_with_flags(
-            db_path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE,
-        )?;
+        let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
 
         configure(&conn)?;
 
@@ -114,7 +112,9 @@ impl CollectionDb {
 
     pub fn active_doc_count(&self) -> usize {
         self.conn
-            .query_row("SELECT COUNT(*) FROM documents WHERE active = 1", [], |r| r.get::<_, usize>(0))
+            .query_row("SELECT COUNT(*) FROM documents WHERE active = 1", [], |r| {
+                r.get::<_, usize>(0)
+            })
             .unwrap_or(0)
     }
 
@@ -126,7 +126,8 @@ impl CollectionDb {
             return query.to_string();
         }
         let mut chain_ref = self.preprocess_chain.borrow_mut();
-        let chain = chain_ref.get_or_insert_with(|| PreprocessChain::spawn(&self.preprocessor_commands));
+        let chain =
+            chain_ref.get_or_insert_with(|| PreprocessChain::spawn(&self.preprocessor_commands));
         if !chain.is_active() {
             eprintln!(
                 "warning: preprocessor ({}) failed to start; using raw query",
@@ -134,7 +135,9 @@ impl CollectionDb {
             );
             return query.to_string();
         }
-        chain.process_text(query).unwrap_or_else(|_| query.to_string())
+        chain
+            .process_text(query)
+            .unwrap_or_else(|_| query.to_string())
     }
 }
 
@@ -154,8 +157,10 @@ pub fn fetch_content_batch(conn: &Connection, hashes: &[&str]) -> HashMap<String
         Ok(s) => s,
         Err(_) => return HashMap::new(),
     };
-    let params: Vec<&dyn rusqlite::types::ToSql> =
-        hashes.iter().map(|h| h as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = hashes
+        .iter()
+        .map(|h| h as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = match stmt.query_map(params.as_slice(), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }) {
@@ -185,8 +190,10 @@ pub fn get_rerank_scores(conn: &Connection, keys: &[String]) -> HashMap<String, 
         Ok(s) => s,
         Err(_) => return HashMap::new(),
     };
-    let params: Vec<&dyn rusqlite::types::ToSql> =
-        keys.iter().map(|k| k as &dyn rusqlite::types::ToSql).collect();
+    let params: Vec<&dyn rusqlite::types::ToSql> = keys
+        .iter()
+        .map(|k| k as &dyn rusqlite::types::ToSql)
+        .collect();
     let rows = match stmt.query_map(params.as_slice(), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     }) {
@@ -226,7 +233,6 @@ pub fn put_rerank_scores(conn: &Connection, entries: &[(String, f64)]) {
     let _ = tx.commit();
 }
 
-
 // ── vector dimension helpers ──────────────────────────────────────────────────
 
 /// Read the current embedding dimension from the vectors_vec virtual table DDL.
@@ -255,9 +261,7 @@ pub fn ensure_vector_dimension(conn: &Connection, dim: usize) -> Result<()> {
     match current_vector_dim(conn) {
         Some(existing) if existing == dim => return Ok(()),
         Some(existing) => {
-            eprintln!(
-                "  vector dimension mismatch ({existing} -> {dim}), rebuilding vector table"
-            );
+            eprintln!("  vector dimension mismatch ({existing} -> {dim}), rebuilding vector table");
             conn.execute_batch(
                 "DROP TABLE IF EXISTS vectors_vec;
                  DELETE FROM content_vectors;",

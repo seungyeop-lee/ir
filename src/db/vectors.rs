@@ -234,10 +234,11 @@ mod tests {
         conn.execute(
             "INSERT INTO documents (path, title, hash, active) VALUES ('multi.md','Multi',?1,1)",
             [hash],
-        ).unwrap();
+        )
+        .unwrap();
 
         // chunk 0 is further away, chunk 2 is closest
-        let far  = vec![0.5f32, 0.5, 0.5, 0.5];
+        let far = vec![0.5f32, 0.5, 0.5, 0.5];
         let near = vec![1.0f32, 0.0, 0.0, 0.0];
         insert(&conn, &format!("{hash}_0"), &far).unwrap();
         insert(&conn, &format!("{hash}_2"), &near).unwrap();

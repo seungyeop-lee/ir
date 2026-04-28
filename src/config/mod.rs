@@ -83,15 +83,20 @@ impl Config {
 
     pub fn add_preprocessor(&mut self, alias: &str, command: &str) -> Result<()> {
         if alias.is_empty() || alias.contains(' ') {
-            return Err(Error::Other(format!("invalid preprocessor alias: {alias:?}")));
+            return Err(Error::Other(format!(
+                "invalid preprocessor alias: {alias:?}"
+            )));
         }
-        self.preprocessors.insert(alias.to_string(), command.to_string());
+        self.preprocessors
+            .insert(alias.to_string(), command.to_string());
         Ok(())
     }
 
     pub fn remove_preprocessor(&mut self, alias: &str) -> Result<()> {
         if self.preprocessors.remove(alias).is_none() {
-            return Err(Error::Other(format!("preprocessor alias not found: {alias:?}")));
+            return Err(Error::Other(format!(
+                "preprocessor alias not found: {alias:?}"
+            )));
         }
         Ok(())
     }
@@ -101,13 +106,11 @@ impl Config {
     pub fn resolve_preprocessor_commands(&self, aliases: &[String]) -> Vec<String> {
         aliases
             .iter()
-            .filter_map(|alias| {
-                match self.preprocessors.get(alias) {
-                    Some(cmd) => Some(cmd.clone()),
-                    None => {
-                        eprintln!("warning: preprocessor alias '{alias}' not found — skipping");
-                        None
-                    }
+            .filter_map(|alias| match self.preprocessors.get(alias) {
+                Some(cmd) => Some(cmd.clone()),
+                None => {
+                    eprintln!("warning: preprocessor alias '{alias}' not found — skipping");
+                    None
                 }
             })
             .collect()
@@ -140,7 +143,9 @@ pub fn ir_dir() -> PathBuf {
     if let Ok(val) = std::env::var("XDG_CONFIG_HOME") {
         static WARN: Once = Once::new();
         WARN.call_once(|| {
-            eprintln!("warning: XDG_CONFIG_HOME is deprecated for ir; use IR_CONFIG_DIR=<path> instead");
+            eprintln!(
+                "warning: XDG_CONFIG_HOME is deprecated for ir; use IR_CONFIG_DIR=<path> instead"
+            );
         });
         return expand_path(&val).join("ir");
     }
@@ -217,7 +222,10 @@ pub fn portable_path(raw: &str) -> Result<String> {
         // Validate via expansion but store the original portable form.
         let expanded = expand_path(raw);
         if !expanded.exists() {
-            return Err(Error::Other(format!("path does not exist: {}", expanded.display())));
+            return Err(Error::Other(format!(
+                "path does not exist: {}",
+                expanded.display()
+            )));
         }
         Ok(raw.to_owned())
     } else {
@@ -340,14 +348,20 @@ mod tests {
     #[test]
     fn expand_env_var() {
         unsafe { std::env::set_var("IR_TEST_EXPAND_VAR", "/custom/path") };
-        assert_eq!(expand_path("$IR_TEST_EXPAND_VAR/sub"), PathBuf::from("/custom/path/sub"));
+        assert_eq!(
+            expand_path("$IR_TEST_EXPAND_VAR/sub"),
+            PathBuf::from("/custom/path/sub")
+        );
         unsafe { std::env::remove_var("IR_TEST_EXPAND_VAR") };
     }
 
     #[test]
     fn expand_braced_var() {
         unsafe { std::env::set_var("IR_TEST_EXPAND_BRACED", "/braced") };
-        assert_eq!(expand_path("${IR_TEST_EXPAND_BRACED}/sub"), PathBuf::from("/braced/sub"));
+        assert_eq!(
+            expand_path("${IR_TEST_EXPAND_BRACED}/sub"),
+            PathBuf::from("/braced/sub")
+        );
         unsafe { std::env::remove_var("IR_TEST_EXPAND_BRACED") };
     }
 
@@ -365,7 +379,10 @@ mod tests {
 
     #[test]
     fn expand_absolute_unchanged() {
-        assert_eq!(expand_path("/absolute/path"), PathBuf::from("/absolute/path"));
+        assert_eq!(
+            expand_path("/absolute/path"),
+            PathBuf::from("/absolute/path")
+        );
     }
 
     #[test]
@@ -456,7 +473,10 @@ mod tests {
         let tilde_path = "~/.config";
         if home.join(".config").exists() {
             let result = portable_path(tilde_path).unwrap();
-            assert_eq!(result, tilde_path, "tilde path must be stored as-is, not expanded");
+            assert_eq!(
+                result, tilde_path,
+                "tilde path must be stored as-is, not expanded"
+            );
         }
     }
 

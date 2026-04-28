@@ -10,10 +10,10 @@
 // Run research/dspy_optimize.py to re-optimize; hardcode results here.
 
 use crate::error::{Error, Result};
-use crate::llm::{LlamaBackend, model_load_params, models};
 use crate::llm::expander::{QueryExpander, SubQuery, fallback, parse_output};
 use crate::llm::generate::{self, GenerateParams};
 use crate::llm::scoring::{self, Scorer};
+use crate::llm::{LlamaBackend, model_load_params, models};
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::model::{AddBos, LlamaModel};
 use std::path::Path;
@@ -124,10 +124,13 @@ impl Combined {
         }
     }
 
-    fn get_or_create_rerank_ctx(&self) -> Result<std::sync::MutexGuard<'_, Option<LlamaContext<'static>>>> {
+    fn get_or_create_rerank_ctx(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Option<LlamaContext<'static>>>> {
         let mut guard = self.cached_rerank_ctx.lock().unwrap();
         if guard.is_none() {
-            let ctx = scoring::create_scoring_context(&self.model, self.backend, RERANK_CONTEXT_SIZE)?;
+            let ctx =
+                scoring::create_scoring_context(&self.model, self.backend, RERANK_CONTEXT_SIZE)?;
             // ! Safety: model lives in same struct; context is dropped first via Drop impl
             let ctx: LlamaContext<'static> = unsafe { std::mem::transmute(ctx) };
             *guard = Some(ctx);
@@ -185,7 +188,6 @@ fn build_expand_prompt(query: &str) -> String {
          <|im_start|>assistant\n"
     )
 }
-
 
 #[cfg(test)]
 mod tests {

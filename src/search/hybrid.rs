@@ -24,13 +24,18 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 fn env_override_f64(name: &str) -> Option<f64> {
-    std::env::var(name).ok().and_then(|raw| raw.parse::<f64>().ok())
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse::<f64>().ok())
 }
 
 fn env_flag(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .is_some_and(|raw| matches!(raw.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+    std::env::var(name).ok().is_some_and(|raw| {
+        matches!(
+            raw.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 pub struct HybridRequest<'a> {
@@ -55,14 +60,18 @@ struct Logger {
 
 impl Logger {
     fn new(verbose: bool) -> Self {
-        Self { log: Vec::new(), verbose }
+        Self {
+            log: Vec::new(),
+            verbose,
+        }
     }
     fn info(&mut self, msg: impl Into<String>) {
         self.log.push(msg.into());
     }
     fn timing(&mut self, stage: &str, d: std::time::Duration) {
         if self.verbose {
-            self.log.push(format!("[timing] {:<14} {}ms", stage, d.as_millis()));
+            self.log
+                .push(format!("[timing] {:<14} {}ms", stage, d.as_millis()));
         }
     }
 }
@@ -131,16 +140,32 @@ fn routing_thresholds_from_overrides(
 ) -> RoutingThresholds {
     let routings: Vec<Option<crate::types::RoutingConfig>> = routings.collect();
     let mut thresholds = default_routing_thresholds(all_preprocessed);
-    if let Some(v) = agreed_override(routings.iter().map(|r| r.as_ref().and_then(|r| r.fused_strong_floor))) {
+    if let Some(v) = agreed_override(
+        routings
+            .iter()
+            .map(|r| r.as_ref().and_then(|r| r.fused_strong_floor)),
+    ) {
         thresholds.fused_floor = v;
     }
-    if let Some(v) = agreed_override(routings.iter().map(|r| r.as_ref().and_then(|r| r.fused_strong_product))) {
+    if let Some(v) = agreed_override(
+        routings
+            .iter()
+            .map(|r| r.as_ref().and_then(|r| r.fused_strong_product)),
+    ) {
         thresholds.fused_product = v;
     }
-    if let Some(v) = agreed_override(routings.iter().map(|r| r.as_ref().and_then(|r| r.bm25_strong_floor))) {
+    if let Some(v) = agreed_override(
+        routings
+            .iter()
+            .map(|r| r.as_ref().and_then(|r| r.bm25_strong_floor)),
+    ) {
         thresholds.bm25_floor = v;
     }
-    if let Some(v) = agreed_override(routings.iter().map(|r| r.as_ref().and_then(|r| r.bm25_strong_gap))) {
+    if let Some(v) = agreed_override(
+        routings
+            .iter()
+            .map(|r| r.as_ref().and_then(|r| r.bm25_strong_gap)),
+    ) {
         thresholds.bm25_gap = v;
     }
     thresholds
@@ -158,19 +183,33 @@ impl HybridSearch {
 
         if fused.is_empty() {
             log.timing("total", t_total.elapsed());
-            return Ok(SearchOutput { results: vec![], log: log.log });
+            return Ok(SearchOutput {
+                results: vec![],
+                log: log.log,
+            });
         }
 
         // Log fused score distribution and coverage ratio for threshold calibration.
         if log.verbose {
-            let scores: Vec<String> = fused.iter().take(5).map(|r| format!("{:.3}", r.score)).collect();
-            log.log.push(format!("[fused] top-5 scores: [{}]", scores.join(", ")));
+            let scores: Vec<String> = fused
+                .iter()
+                .take(5)
+                .map(|r| format!("{:.3}", r.score))
+                .collect();
+            log.log
+                .push(format!("[fused] top-5 scores: [{}]", scores.join(", ")));
             let doc_count: usize = dbs.iter().map(|db| db.active_doc_count()).sum();
             let fetch_n = req.limit * 3; // ^ matches score_fusion_two_list no-filter path
-            let coverage = if doc_count > 0 { (fetch_n * 2) as f64 / doc_count as f64 } else { 1.0 };
+            let coverage = if doc_count > 0 {
+                (fetch_n * 2) as f64 / doc_count as f64
+            } else {
+                1.0
+            };
             log.log.push(format!(
                 "[coverage] fusion_candidates={} corpus={} coverage={:.3} (threshold TBD)",
-                fetch_n * 2, doc_count, coverage
+                fetch_n * 2,
+                doc_count,
+                coverage
             ));
         }
 
@@ -180,7 +219,10 @@ impl HybridSearch {
 
         if fused.is_empty() {
             log.timing("total", t_total.elapsed());
-            return Ok(SearchOutput { results: vec![], log: log.log });
+            return Ok(SearchOutput {
+                results: vec![],
+                log: log.log,
+            });
         }
 
         // Research instrumentation: emit fused signal via log (routed back to client stderr).
@@ -188,7 +230,11 @@ impl HybridSearch {
         // Uses log.info (not eprintln) because daemon stderr goes to a log file.
         if std::env::var("IR_BENCH_SIGNALS").is_ok() {
             let top = fused[0].score;
-            let gap = if fused.len() >= 2 { top - fused[1].score } else { top };
+            let gap = if fused.len() >= 2 {
+                top - fused[1].score
+            } else {
+                top
+            };
             log.info(format!("SIGNAL_FUSED\t{top:.6}\t{gap:.6}"));
         }
         if force_tier1_only {
@@ -228,7 +274,9 @@ impl HybridSearch {
         let (enhanced, expansion_ran) = if self.scorer.is_some() || allow_expand_without_scorer {
             if let Some(exp) = &self.expander {
                 let t0 = Instant::now();
-                let cached = self.expander_cache.as_ref()
+                let cached = self
+                    .expander_cache
+                    .as_ref()
                     .and_then(|c| c.get(exp.model_id(), req.query));
                 if self.scorer.is_none() {
                     log.info("Expanding without reranker (research override)...");
@@ -249,11 +297,22 @@ impl HybridSearch {
                     subs
                 };
 
-                let n_vec = subs.iter().filter(|s| matches!(s.kind, SubQueryKind::Vec | SubQueryKind::Hyde)).count();
+                let n_vec = subs
+                    .iter()
+                    .filter(|s| matches!(s.kind, SubQueryKind::Vec | SubQueryKind::Hyde))
+                    .count();
                 let n_lex = subs.iter().filter(|s| s.kind == SubQueryKind::Lex).count();
-                log.info(format!("Searching {} sub-queries ({} lex, {} vec/hyde)...", subs.len(), n_lex, n_vec));
+                log.info(format!(
+                    "Searching {} sub-queries ({} lex, {} vec/hyde)...",
+                    subs.len(),
+                    n_lex,
+                    n_vec
+                ));
 
-                (rrf_from_subqueries(dbs, &self.embedder, &subs, req, fused, &mut log)?, true)
+                (
+                    rrf_from_subqueries(dbs, &self.embedder, &subs, req, fused, &mut log)?,
+                    true,
+                )
             } else {
                 (fused, false)
             }
@@ -273,7 +332,10 @@ impl HybridSearch {
 
         if enhanced.is_empty() {
             log.timing("total", t_total.elapsed());
-            return Ok(SearchOutput { results: vec![], log: log.log });
+            return Ok(SearchOutput {
+                results: vec![],
+                log: log.log,
+            });
         }
 
         // 4. Rerank top-20 if scorer available.
@@ -281,7 +343,14 @@ impl HybridSearch {
             let n = enhanced.len().min(20);
             log.info(format!("Reranking {n} chunks..."));
             let t0 = Instant::now();
-            let result = rerank(scorer.as_ref(), req.query, enhanced, dbs, req.limit, &mut log)?;
+            let result = rerank(
+                scorer.as_ref(),
+                req.query,
+                enhanced,
+                dbs,
+                req.limit,
+                &mut log,
+            )?;
             log.timing("rerank", t0.elapsed());
             result
         } else {
@@ -512,12 +581,12 @@ pub fn strong_signal_thresholds_for_all_preprocessed(all_preprocessed: bool) -> 
     (floor, product)
 }
 
-pub fn strong_signal_thresholds_for_collections(
-    cols: &[&crate::types::Collection],
-) -> (f64, f64) {
+pub fn strong_signal_thresholds_for_collections(cols: &[&crate::types::Collection]) -> (f64, f64) {
     let thresholds = routing_thresholds_from_overrides(
         !cols.is_empty()
-            && cols.iter().all(|c| c.preprocessor.as_ref().is_some_and(|pp| !pp.is_empty())),
+            && cols
+                .iter()
+                .all(|c| c.preprocessor.as_ref().is_some_and(|pp| !pp.is_empty())),
         cols.iter().map(|c| c.routing.clone()),
     );
     (thresholds.fused_floor, thresholds.fused_product)
@@ -535,7 +604,9 @@ pub fn bm25_strong_signal_thresholds_for_collections(
 ) -> (f64, f64) {
     let thresholds = routing_thresholds_from_overrides(
         !cols.is_empty()
-            && cols.iter().all(|c| c.preprocessor.as_ref().is_some_and(|pp| !pp.is_empty())),
+            && cols
+                .iter()
+                .all(|c| c.preprocessor.as_ref().is_some_and(|pp| !pp.is_empty())),
         cols.iter().map(|c| c.routing.clone()),
     );
     (thresholds.bm25_floor, thresholds.bm25_gap)
@@ -543,7 +614,11 @@ pub fn bm25_strong_signal_thresholds_for_collections(
 
 /// Tier-0 shortcut on raw BM25 scores before any vector retrieval.
 /// Higher thresholds than fused shortcut — raw BM25 at 0.40 is a moderate match.
-pub fn is_bm25_strong_signal(results: &[SearchResult], floor_threshold: f64, gap_threshold: f64) -> bool {
+pub fn is_bm25_strong_signal(
+    results: &[SearchResult],
+    floor_threshold: f64,
+    gap_threshold: f64,
+) -> bool {
     let top = match results.first() {
         Some(r) if r.score >= floor_threshold => r.score,
         _ => return false,
@@ -615,7 +690,8 @@ fn rerank(
 
     let n_cached = top_n - uncached_indices.len();
     if n_cached > 0 && log.verbose {
-        log.log.push(format!("[timing] rerank_cached  {n_cached}/{top_n} hits"));
+        log.log
+            .push(format!("[timing] rerank_cached  {n_cached}/{top_n} hits"));
     }
 
     // Score only uncached candidates
@@ -624,10 +700,7 @@ fn rerank(
             .iter()
             .map(|&i| fetch_doc_text(dbs, &to_rerank[i].hash, &to_rerank[i].collection))
             .collect();
-        let doc_refs: Vec<&str> = texts
-            .iter()
-            .map(|t| t.as_deref().unwrap_or(""))
-            .collect();
+        let doc_refs: Vec<&str> = texts.iter().map(|t| t.as_deref().unwrap_or("")).collect();
         let scores = scorer.score_batch(query, &doc_refs).unwrap_or_default();
 
         // Collect new entries to write to cache, grouped by collection
@@ -813,7 +886,11 @@ mod tests {
         };
 
         let r = vec![make(0.70), make(0.60)];
-        assert!(!is_bm25_strong_signal(&r, BM25_STRONG_FLOOR, BM25_STRONG_GAP));
+        assert!(!is_bm25_strong_signal(
+            &r,
+            BM25_STRONG_FLOOR,
+            BM25_STRONG_GAP
+        ));
         assert!(is_bm25_strong_signal(&r, 0.70, 0.09));
     }
 
@@ -899,7 +976,10 @@ mod tests {
         let a = make("a");
         let b = make("b");
         let cols = vec![&a, &b];
-        assert_eq!(strong_signal_thresholds_for_collections(&cols), (STRONG_SIGNAL_FLOOR, 0.05));
+        assert_eq!(
+            strong_signal_thresholds_for_collections(&cols),
+            (STRONG_SIGNAL_FLOOR, 0.05)
+        );
     }
 
     #[test]
@@ -928,8 +1008,14 @@ mod tests {
             routing: None,
         };
         let cols = vec![&a, &b];
-        assert_eq!(strong_signal_thresholds_for_collections(&cols), (STRONG_SIGNAL_FLOOR, STRONG_SIGNAL_PRODUCT));
-        assert_eq!(bm25_strong_signal_thresholds_for_collections(&cols), (BM25_STRONG_FLOOR, BM25_STRONG_GAP));
+        assert_eq!(
+            strong_signal_thresholds_for_collections(&cols),
+            (STRONG_SIGNAL_FLOOR, STRONG_SIGNAL_PRODUCT)
+        );
+        assert_eq!(
+            bm25_strong_signal_thresholds_for_collections(&cols),
+            (BM25_STRONG_FLOOR, BM25_STRONG_GAP)
+        );
     }
 
     #[test]

@@ -57,11 +57,17 @@ impl PreprocessHandle {
             Ok(mut child) => {
                 let stdin = BufWriter::new(child.stdin.take()?);
                 let stdout = BufReader::new(child.stdout.take()?);
-                Some(Self { child, stdin, stdout })
+                Some(Self {
+                    child,
+                    stdin,
+                    stdout,
+                })
             }
             Err(e) => {
                 eprintln!("warning: failed to spawn preprocessor '{cmd_str}': {e}");
-                eprintln!("hint: run `ir preprocessor install <lang>` to reinstall from official lindera releases");
+                eprintln!(
+                    "hint: run `ir preprocessor install <lang>` to reinstall from official lindera releases"
+                );
                 None
             }
         }
@@ -160,7 +166,9 @@ pub fn preprocess_query(query: &str, commands: &[String]) -> String {
         );
         return query.to_string();
     }
-    chain.process_text(query).unwrap_or_else(|_| query.to_string())
+    chain
+        .process_text(query)
+        .unwrap_or_else(|_| query.to_string())
 }
 
 #[cfg(test)]
@@ -260,7 +268,12 @@ mod tests {
     fn write_dot_filter_script(suffix: &str) -> String {
         use std::os::unix::fs::PermissionsExt;
         const SCRIPT: &[u8] = b"#!/usr/bin/env python3\nimport sys\nfor line in sys.stdin:\n    s=line.rstrip('\\n')\n    if s != '.':\n        print(s, flush=True)\n";
-        let path = format!("{}/ir-test-{}-{}.py", std::env::temp_dir().display(), suffix, std::process::id());
+        let path = format!(
+            "{}/ir-test-{}-{}.py",
+            std::env::temp_dir().display(),
+            suffix,
+            std::process::id()
+        );
         std::fs::write(&path, SCRIPT).unwrap();
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o755);
@@ -275,7 +288,10 @@ mod tests {
         let mut handle = PreprocessHandle::spawn(&path).unwrap();
         // Punctuation-only line → filter drops it → sentinel must unblock read_line()
         let out = handle.process_line(".").unwrap();
-        assert_eq!(out, "", "filtered line should return empty string, not deadlock");
+        assert_eq!(
+            out, "",
+            "filtered line should return empty string, not deadlock"
+        );
         let out = handle.process_line("hello").unwrap();
         assert_eq!(out, "hello");
         std::fs::remove_file(&path).ok();

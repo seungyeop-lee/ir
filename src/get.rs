@@ -39,7 +39,9 @@ const SQL_LIKE_ESCAPED: &str = "SELECT d.path, d.title, c.doc \
 
 /// Escape `%` and `_` so LIKE treats them as literals.
 fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 // ── public API ───────────────────────────────────────────────────────────────
@@ -63,7 +65,11 @@ pub fn fetch_document_with_config(
     let cols: Vec<&Collection> = if collection_filter.is_empty() {
         config.collections.iter().collect()
     } else {
-        config.collections.iter().filter(|c| collection_filter.contains(&c.name)).collect()
+        config
+            .collections
+            .iter()
+            .filter(|c| collection_filter.contains(&c.name))
+            .collect()
     };
 
     db::ensure_sqlite_vec();
@@ -90,7 +96,10 @@ pub fn fetch_document_with_config(
         let conn = match open_readonly(&db_path) {
             Ok(c) => c,
             Err(rusqlite::Error::SqliteFailure(e, _))
-                if e.code == rusqlite::ErrorCode::CannotOpen => continue,
+                if e.code == rusqlite::ErrorCode::CannotOpen =>
+            {
+                continue;
+            }
             Err(e) => return Err(e.into()),
         };
         if let Some(doc) = lookup_in_conn(&conn, &col.name, path)? {
@@ -101,7 +110,11 @@ pub fn fetch_document_with_config(
 }
 
 /// Try exact, suffix, then substring path match. Stops at first hit.
-pub fn lookup_in_conn(conn: &Connection, collection: &str, path: &str) -> Result<Option<DocContent>> {
+pub fn lookup_in_conn(
+    conn: &Connection,
+    collection: &str,
+    path: &str,
+) -> Result<Option<DocContent>> {
     if path.is_empty() {
         return Ok(None);
     }
@@ -180,13 +193,18 @@ fn apply_chunks_from_conn(
     let mut unique_hashes: Vec<&str> = items.iter().map(|(_, h, _)| h.as_str()).collect();
     unique_hashes.sort_unstable();
     unique_hashes.dedup();
-    let placeholders = unique_hashes.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let placeholders = unique_hashes
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!("SELECT hash, doc FROM content WHERE hash IN ({placeholders})");
     let mut stmt = conn.prepare(&sql)?;
     let content_map: HashMap<String, String> = stmt
-        .query_map(rusqlite::params_from_iter(unique_hashes.iter().copied()), |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
+        .query_map(
+            rusqlite::params_from_iter(unique_hashes.iter().copied()),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?
         .collect::<std::result::Result<_, _>>()?;
 
     for (result_idx, hash, seq) in items {
@@ -210,7 +228,10 @@ fn fetch_chunk_from_conn(conn: &Connection, hash: &str, seq: usize) -> Result<Op
         )
         .optional()?;
     Ok(doc.and_then(|text| {
-        crate::index::chunker::chunk_document(&text).into_iter().nth(seq).map(|c| c.text)
+        crate::index::chunker::chunk_document(&text)
+            .into_iter()
+            .nth(seq)
+            .map(|c| c.text)
     }))
 }
 
@@ -220,7 +241,10 @@ pub fn populate_chunk_content(results: &mut [SearchResult]) -> Result<()> {
     let tasks: Vec<(usize, String, String, usize)> = results
         .iter()
         .enumerate()
-        .filter_map(|(i, r)| r.chunk_seq.map(|seq| (i, r.collection.clone(), r.hash.clone(), seq)))
+        .filter_map(|(i, r)| {
+            r.chunk_seq
+                .map(|seq| (i, r.collection.clone(), r.hash.clone(), seq))
+        })
         .collect();
     if tasks.is_empty() {
         return Ok(());
@@ -241,7 +265,10 @@ pub fn populate_chunk_content(results: &mut [SearchResult]) -> Result<()> {
         let conn = match open_readonly(&db_path) {
             Ok(c) => c,
             Err(rusqlite::Error::SqliteFailure(e, _))
-                if e.code == rusqlite::ErrorCode::CannotOpen => continue,
+                if e.code == rusqlite::ErrorCode::CannotOpen =>
+            {
+                continue;
+            }
             Err(e) => return Err(e.into()),
         };
         apply_chunks_from_conn(&conn, items, results)?;
@@ -432,7 +459,10 @@ mod tests {
         let doc = "##\ncontent\n## Other\n";
         // "##" is a valid heading with empty text; "   ".trim() == ""
         let s = extract_section(doc, "   ");
-        assert!(s.is_some(), "whitespace-only query trims to '' which matches '##'");
+        assert!(
+            s.is_some(),
+            "whitespace-only query trims to '' which matches '##'"
+        );
     }
 
     #[test]
@@ -576,8 +606,10 @@ mod tests {
         let s = extract_section(doc, "Hello").unwrap();
         let doc_ptr = doc.as_ptr() as usize;
         let s_ptr = s.as_ptr() as usize;
-        assert!(s_ptr >= doc_ptr && s_ptr <= doc_ptr + doc.len(),
-            "returned slice should point into the original doc");
+        assert!(
+            s_ptr >= doc_ptr && s_ptr <= doc_ptr + doc.len(),
+            "returned slice should point into the original doc"
+        );
     }
 
     // ── trim_content ─────────────────────────────────────────────────────────
@@ -645,7 +677,8 @@ mod tests {
     fn open_chunk_test_db() -> Connection {
         crate::db::ensure_sqlite_vec();
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("db/schema_base.sql")).unwrap();
+        conn.execute_batch(include_str!("db/schema_base.sql"))
+            .unwrap();
         conn
     }
 
@@ -653,7 +686,8 @@ mod tests {
         conn.execute(
             "INSERT OR IGNORE INTO content (hash, doc, created_at) VALUES (?1, ?2, '2026-01-01')",
             rusqlite::params![hash, doc],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     #[test]
@@ -799,7 +833,8 @@ mod tests {
     fn open_test_db() -> Connection {
         crate::db::ensure_sqlite_vec();
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("db/schema_base.sql")).unwrap();
+        conn.execute_batch(include_str!("db/schema_base.sql"))
+            .unwrap();
         conn
     }
 
@@ -808,12 +843,14 @@ mod tests {
         conn.execute(
             "INSERT OR IGNORE INTO content (hash, doc, created_at) VALUES (?1, ?2, '2026-01-01')",
             rusqlite::params![hash, content],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO documents (path, title, hash, created_at, modified_at, active) \
              VALUES (?1, ?2, ?3, '2026-01-01', '2026-01-01', 1)",
             rusqlite::params![path, title, hash],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     fn insert_inactive_doc(conn: &Connection, path: &str, title: &str, content: &str) {
@@ -821,12 +858,14 @@ mod tests {
         conn.execute(
             "INSERT OR IGNORE INTO content (hash, doc, created_at) VALUES (?1, ?2, '2026-01-01')",
             rusqlite::params![hash, content],
-        ).unwrap();
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO documents (path, title, hash, created_at, modified_at, active) \
              VALUES (?1, ?2, ?3, '2026-01-01', '2026-01-01', 0)",
             rusqlite::params![path, title, hash],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // ── resolve_vault_root_path ──────────────────────────────────────────────
@@ -835,9 +874,8 @@ mod tests {
     fn vault_root_strips_prefix() {
         let periodic = test_col("periodic", "/vault/0. PeriodicNotes");
         let cols: Vec<&Collection> = vec![&periodic];
-        let (col, rest) = resolve_vault_root_path(
-            "0. PeriodicNotes/2026/Daily/04/file.md", &cols
-        ).unwrap();
+        let (col, rest) =
+            resolve_vault_root_path("0. PeriodicNotes/2026/Daily/04/file.md", &cols).unwrap();
         assert_eq!(col.name, "periodic");
         assert_eq!(rest, "2026/Daily/04/file.md");
     }
@@ -861,9 +899,8 @@ mod tests {
         let periodic = test_col("periodic", "/vault/0. PeriodicNotes");
         let projects = test_col("projects", "/vault/1. Projects");
         let cols: Vec<&Collection> = vec![&periodic, &projects];
-        let (col, rest) = resolve_vault_root_path(
-            "1. Projects/myproject/README.md", &cols
-        ).unwrap();
+        let (col, rest) =
+            resolve_vault_root_path("1. Projects/myproject/README.md", &cols).unwrap();
         assert_eq!(col.name, "projects");
         assert_eq!(rest, "myproject/README.md");
     }
@@ -890,9 +927,8 @@ mod tests {
     fn vault_root_with_spaces_in_dirname() {
         let col = test_col("periodic", "/vault/0. Periodic Notes");
         let cols: Vec<&Collection> = vec![&col];
-        let (matched, rest) = resolve_vault_root_path(
-            "0. Periodic Notes/2026/file.md", &cols
-        ).unwrap();
+        let (matched, rest) =
+            resolve_vault_root_path("0. Periodic Notes/2026/file.md", &cols).unwrap();
         assert_eq!(matched.name, "periodic");
         assert_eq!(rest, "2026/file.md");
     }
@@ -903,7 +939,9 @@ mod tests {
     fn lookup_exact_match() {
         let conn = open_test_db();
         insert_doc(&conn, "2026/Daily/04/file.md", "File", "hello world");
-        let doc = lookup_in_conn(&conn, "test", "2026/Daily/04/file.md").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "2026/Daily/04/file.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.path, "2026/Daily/04/file.md");
         assert_eq!(doc.title, "File");
         assert_eq!(doc.content, "hello world");
@@ -915,7 +953,9 @@ mod tests {
         let conn = open_test_db();
         insert_doc(&conn, "2026/Daily/04/file.md", "File", "content");
         // Suffix: requesting just "04/file.md" should match via %/04/file.md
-        let doc = lookup_in_conn(&conn, "test", "04/file.md").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "04/file.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.path, "2026/Daily/04/file.md");
     }
 
@@ -924,7 +964,9 @@ mod tests {
         let conn = open_test_db();
         insert_doc(&conn, "2026/Daily/04/file.md", "File", "content");
         // Substring: partial match via %Daily%
-        let doc = lookup_in_conn(&conn, "test", "Daily/04/file").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "Daily/04/file")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.path, "2026/Daily/04/file.md");
     }
 
@@ -932,7 +974,11 @@ mod tests {
     fn lookup_no_match() {
         let conn = open_test_db();
         insert_doc(&conn, "2026/Daily/04/file.md", "File", "content");
-        assert!(lookup_in_conn(&conn, "test", "nonexistent.md").unwrap().is_none());
+        assert!(
+            lookup_in_conn(&conn, "test", "nonexistent.md")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -957,7 +1003,9 @@ mod tests {
         let conn = open_test_db();
         insert_doc(&conn, "notes/100% done.md", "Percent", "content");
         // Path with literal % should still work for exact match
-        let doc = lookup_in_conn(&conn, "test", "notes/100% done.md").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "notes/100% done.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.title, "Percent");
     }
 
@@ -966,7 +1014,9 @@ mod tests {
         let conn = open_test_db();
         insert_doc(&conn, "my_notes/file.md", "Underscore", "content");
         // _ is a LIKE wildcard but exact match should take priority
-        let doc = lookup_in_conn(&conn, "test", "my_notes/file.md").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "my_notes/file.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.title, "Underscore");
     }
 
@@ -979,7 +1029,9 @@ mod tests {
         insert_doc(&conn, "notes/100X done.md", "Wrong", "wrong");
         // Search "100% done.md" (no exact match). Suffix LIKE must not treat
         // the literal % as a wildcard matching "100X done.md".
-        let doc = lookup_in_conn(&conn, "test", "100% done.md").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "100% done.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.title, "Percent");
     }
 
@@ -1049,7 +1101,9 @@ mod tests {
     fn lookup_cjk_filename_via_suffix() {
         let conn = open_test_db();
         insert_doc(&conn, "日本語/ファイル.md", "CJK", "content");
-        let doc = lookup_in_conn(&conn, "test", "ファイル.md").unwrap().unwrap();
+        let doc = lookup_in_conn(&conn, "test", "ファイル.md")
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.path, "日本語/ファイル.md");
     }
 }

@@ -51,7 +51,11 @@ pub fn chunk_document(doc: &str) -> Vec<Chunk> {
     let min_chunk_chars = MIN_CHUNK_SIZE_TOKENS * CHARS_PER_TOKEN;
 
     if doc.len() <= chunk_size_chars {
-        return vec![Chunk { seq: 0, pos: 0, text: doc.to_string() }];
+        return vec![Chunk {
+            seq: 0,
+            pos: 0,
+            text: doc.to_string(),
+        }];
     }
 
     let break_points = precompute_break_points(doc);
@@ -84,7 +88,11 @@ pub fn chunk_document(doc: &str) -> Vec<Chunk> {
             }
         };
 
-        chunks.push(Chunk { seq: chunks.len(), pos: start, text: doc[start..end].to_string() });
+        chunks.push(Chunk {
+            seq: chunks.len(),
+            pos: start,
+            text: doc[start..end].to_string(),
+        });
         prev_end = end;
 
         if end == doc.len() {
@@ -190,7 +198,11 @@ fn best_break(
         .map(|(pos, score)| {
             // Distance from target_end, normalized to [0, 1] (0 = at target).
             let dist = (target_end - pos) as f64;
-            let norm_dist = if window_size > 0.0 { dist / window_size } else { 0.0 };
+            let norm_dist = if window_size > 0.0 {
+                dist / window_size
+            } else {
+                0.0
+            };
             let adjusted = score * (1.0 - norm_dist.powi(2) * 0.7);
             (*pos, adjusted)
         })
@@ -226,7 +238,9 @@ pub fn extract_title(doc: &str, path_hint: &str) -> String {
 
     if let Some((yaml_block, end)) = crate::frontmatter::find_block(doc) {
         body_start = end;
-        if let Ok(serde_yaml::Value::Mapping(m)) = serde_yaml::from_str::<serde_yaml::Value>(yaml_block) {
+        if let Ok(serde_yaml::Value::Mapping(m)) =
+            serde_yaml::from_str::<serde_yaml::Value>(yaml_block)
+        {
             for key in ["title", "name"] {
                 let k = serde_yaml::Value::String(key.to_string());
                 if let Some(serde_yaml::Value::String(s)) = m.get(&k)
@@ -325,7 +339,12 @@ mod tests {
         assert!(chunks.len() >= 2, "rebalanced doc should produce ≥2 chunks");
         let min_chars = MIN_CHUNK_SIZE_TOKENS * CHARS_PER_TOKEN;
         for c in &chunks {
-            assert!(c.text.len() >= min_chars, "chunk {} below floor: {} chars", c.seq, c.text.len());
+            assert!(
+                c.text.len() >= min_chars,
+                "chunk {} below floor: {} chars",
+                c.seq,
+                c.text.len()
+            );
         }
         set_chunk_size_tokens_override(None);
     }
@@ -342,10 +361,18 @@ mod tests {
         let section = "word ".repeat(140); // 700 chars
         let doc = format!("{section}\n\n## Section\n\n{section}"); // ~1414 chars
         let chunks = chunk_document(&doc);
-        assert!(chunks.len() >= 2, "healthy-tail doc should produce ≥2 chunks");
+        assert!(
+            chunks.len() >= 2,
+            "healthy-tail doc should produce ≥2 chunks"
+        );
         let min_chars = MIN_CHUNK_SIZE_TOKENS * CHARS_PER_TOKEN;
         for c in &chunks {
-            assert!(c.text.len() >= min_chars, "chunk {} below floor: {} chars", c.seq, c.text.len());
+            assert!(
+                c.text.len() >= min_chars,
+                "chunk {} below floor: {} chars",
+                c.seq,
+                c.text.len()
+            );
         }
         set_chunk_size_tokens_override(None);
     }
@@ -377,9 +404,17 @@ mod tests {
         // doc_tail=801 ≥ 800 → rebalance: target = 801-400=401.
         let doc = "x".repeat(801);
         let chunks = chunk_document(&doc);
-        assert!(chunks.len() >= 2, "801-char doc with chunk_size=800 should split");
+        assert!(
+            chunks.len() >= 2,
+            "801-char doc with chunk_size=800 should split"
+        );
         for c in &chunks {
-            assert!(c.text.len() >= min_chars, "chunk {} too small: {}", c.seq, c.text.len());
+            assert!(
+                c.text.len() >= min_chars,
+                "chunk {} too small: {}",
+                c.seq,
+                c.text.len()
+            );
         }
         set_chunk_size_tokens_override(None);
     }
@@ -462,7 +497,11 @@ mod tests {
         // All chunks must have distinct start positions.
         let positions: Vec<usize> = chunks.iter().map(|c| c.pos).collect();
         let unique: std::collections::HashSet<usize> = positions.iter().copied().collect();
-        assert_eq!(positions.len(), unique.len(), "duplicate start positions detected");
+        assert_eq!(
+            positions.len(),
+            unique.len(),
+            "duplicate start positions detected"
+        );
         set_chunk_size_tokens_override(None);
     }
 
@@ -501,8 +540,11 @@ mod tests {
         let doc = (line + "\n").repeat(8); // ~3368 chars
         let chunks = chunk_document(&doc);
         let last = chunks.last().unwrap();
-        assert_eq!(last.pos + last.text.len(), doc.len(),
-            "last chunk must reach end of doc");
+        assert_eq!(
+            last.pos + last.text.len(),
+            doc.len(),
+            "last chunk must reach end of doc"
+        );
         set_chunk_size_tokens_override(None);
     }
 

@@ -60,8 +60,7 @@ impl SearchResult {
 
 /// Comparison operator for a filter clause.
 /// Derives JsonSchema so MCP clients receive typed enum choices in the tool schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(schemars::JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterOp {
     /// Exact match (case-sensitive): field = value
@@ -317,10 +316,22 @@ mod tests {
     fn parse_all_ops() {
         assert_eq!(parse_one("path=foo").op, FilterOp::Eq);
         assert_eq!(parse_one("path!=foo").op, FilterOp::Ne);
-        assert_eq!(parse_one("modified_at>2024-01-01T00:00:00Z").op, FilterOp::Gt);
-        assert_eq!(parse_one("modified_at>=2024-01-01T00:00:00Z").op, FilterOp::Gte);
-        assert_eq!(parse_one("modified_at<2024-01-01T00:00:00Z").op, FilterOp::Lt);
-        assert_eq!(parse_one("modified_at<=2024-01-01T00:00:00Z").op, FilterOp::Lte);
+        assert_eq!(
+            parse_one("modified_at>2024-01-01T00:00:00Z").op,
+            FilterOp::Gt
+        );
+        assert_eq!(
+            parse_one("modified_at>=2024-01-01T00:00:00Z").op,
+            FilterOp::Gte
+        );
+        assert_eq!(
+            parse_one("modified_at<2024-01-01T00:00:00Z").op,
+            FilterOp::Lt
+        );
+        assert_eq!(
+            parse_one("modified_at<=2024-01-01T00:00:00Z").op,
+            FilterOp::Lte
+        );
         assert_eq!(parse_one("path~notes/").op, FilterOp::Contains);
         assert_eq!(parse_one("path!~archive/").op, FilterOp::NotContains);
     }

@@ -87,15 +87,25 @@ pub fn ensure_model(filename: &str) -> Result<PathBuf> {
 /// one `/` is handled correctly.
 pub fn as_hf_repo_id(s: &str) -> Option<&str> {
     let t = s.trim();
-    if t.is_empty() { return None; }
+    if t.is_empty() {
+        return None;
+    }
     // Local path prefixes.
-    if t.starts_with('.') || t.starts_with('/') || t.starts_with('~') { return None; }
-    if t.contains(char::is_whitespace) || t.contains('\\') { return None; }
+    if t.starts_with('.') || t.starts_with('/') || t.starts_with('~') {
+        return None;
+    }
+    if t.contains(char::is_whitespace) || t.contains('\\') {
+        return None;
+    }
     let mut parts = t.splitn(3, '/');
     let owner = parts.next()?;
     let repo = parts.next()?;
-    if parts.next().is_some() { return None; } // three or more segments
-    if owner.is_empty() || repo.is_empty() { return None; }
+    if parts.next().is_some() {
+        return None;
+    } // three or more segments
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
     Some(t)
 }
 
@@ -423,8 +433,10 @@ mod tests {
         std::fs::File::create(&model_file).unwrap();
 
         unsafe { std::env::set_var("IR_TEST_RESOLVE_DIR_C", dir.path()) };
-        let result =
-            resolve_env_hf_or_path(&["IR_TEST_RESOLVE_DIR_C"], &[models::EMBEDDING, models::BGE_M3]);
+        let result = resolve_env_hf_or_path(
+            &["IR_TEST_RESOLVE_DIR_C"],
+            &[models::EMBEDDING, models::BGE_M3],
+        );
         unsafe { std::env::remove_var("IR_TEST_RESOLVE_DIR_C") };
 
         assert_eq!(result.unwrap(), Some(model_file));
@@ -484,9 +496,13 @@ mod tests {
         use super::prepare_model_envs;
         // Skip if any real env vars are set — user's dev environment may have them pointing
         // at local files we can't stat in the test environment.
-        let any_set = ["IR_EMBEDDING_MODEL", "IR_RERANKER_MODEL", "IR_EXPANDER_MODEL"]
-            .iter()
-            .any(|k| std::env::var_os(k).is_some());
+        let any_set = [
+            "IR_EMBEDDING_MODEL",
+            "IR_RERANKER_MODEL",
+            "IR_EXPANDER_MODEL",
+        ]
+        .iter()
+        .any(|k| std::env::var_os(k).is_some());
         if !any_set {
             prepare_model_envs().expect("prepare_model_envs should succeed with no env vars set");
         }

@@ -11,7 +11,11 @@ use std::collections::HashMap;
 ///
 /// Per collection: one SQL batch for built-in fields, one optional batch for meta.* fields.
 /// All values are parameter-bound — no injection surface.
-pub fn apply(candidates: &mut Vec<SearchResult>, filter: &Filter, dbs: &[CollectionDb]) -> Result<()> {
+pub fn apply(
+    candidates: &mut Vec<SearchResult>,
+    filter: &Filter,
+    dbs: &[CollectionDb],
+) -> Result<()> {
     if filter.is_empty() {
         return Ok(());
     }
@@ -21,7 +25,10 @@ pub fn apply(candidates: &mut Vec<SearchResult>, filter: &Filter, dbs: &[Collect
     // Group candidate paths by collection name
     let mut by_collection: HashMap<&str, Vec<&str>> = HashMap::new();
     for c in candidates.iter() {
-        by_collection.entry(c.collection.as_str()).or_default().push(c.path.as_str());
+        by_collection
+            .entry(c.collection.as_str())
+            .or_default()
+            .push(c.path.as_str());
     }
 
     // field_maps: (collection, path) → {field → Vec<value>}
@@ -48,16 +55,14 @@ pub fn apply(candidates: &mut Vec<SearchResult>, filter: &Filter, dbs: &[Collect
                  WHERE path IN ({placeholders}) AND active = 1"
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(
-                rusqlite::params_from_iter(paths.iter().copied()),
-                |row| {
+            let rows =
+                stmt.query_map(rusqlite::params_from_iter(paths.iter().copied()), |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
                     ))
-                },
-            )?;
+                })?;
             for row in rows {
                 let (path, modified_at, created_at) = row?;
                 let key = (db.name.clone(), path.clone());
@@ -77,16 +82,14 @@ pub fn apply(candidates: &mut Vec<SearchResult>, filter: &Filter, dbs: &[Collect
                  WHERE d.path IN ({placeholders}) AND d.active = 1"
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt.query_map(
-                rusqlite::params_from_iter(paths.iter().copied()),
-                |row| {
+            let rows =
+                stmt.query_map(rusqlite::params_from_iter(paths.iter().copied()), |row| {
                     Ok((
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
                     ))
-                },
-            )?;
+                })?;
             for row in rows {
                 let (path, key, value) = row?;
                 let map_key = (db.name.clone(), path);
@@ -106,7 +109,10 @@ pub fn apply(candidates: &mut Vec<SearchResult>, filter: &Filter, dbs: &[Collect
         let Some(fields) = field_maps.get(&key) else {
             return false; // doc not found in DB — exclude
         };
-        filter.clauses.iter().all(|clause| eval_clause(clause, fields))
+        filter
+            .clauses
+            .iter()
+            .all(|clause| eval_clause(clause, fields))
     });
 
     Ok(())
@@ -155,7 +161,11 @@ mod tests {
     }
 
     fn clause(field: &str, op: FilterOp, value: &str) -> FilterClause {
-        FilterClause { field: field.to_string(), op, value: value.to_string() }
+        FilterClause {
+            field: field.to_string(),
+            op,
+            value: value.to_string(),
+        }
     }
 
     // --- match_op ---
@@ -175,11 +185,31 @@ mod tests {
     #[test]
     fn lex_comparisons() {
         // Dates as UTC RFC3339 sort lexicographically
-        assert!(match_op("2026-01-02T00:00:00Z", FilterOp::Gt, "2026-01-01T00:00:00Z"));
-        assert!(match_op("2026-01-01T00:00:00Z", FilterOp::Gte, "2026-01-01T00:00:00Z"));
-        assert!(match_op("2024-01-01T00:00:00Z", FilterOp::Lt, "2025-01-01T00:00:00Z"));
-        assert!(match_op("2025-01-01T00:00:00Z", FilterOp::Lte, "2025-01-01T00:00:00Z"));
-        assert!(!match_op("2024-01-01T00:00:00Z", FilterOp::Gt, "2025-01-01T00:00:00Z"));
+        assert!(match_op(
+            "2026-01-02T00:00:00Z",
+            FilterOp::Gt,
+            "2026-01-01T00:00:00Z"
+        ));
+        assert!(match_op(
+            "2026-01-01T00:00:00Z",
+            FilterOp::Gte,
+            "2026-01-01T00:00:00Z"
+        ));
+        assert!(match_op(
+            "2024-01-01T00:00:00Z",
+            FilterOp::Lt,
+            "2025-01-01T00:00:00Z"
+        ));
+        assert!(match_op(
+            "2025-01-01T00:00:00Z",
+            FilterOp::Lte,
+            "2025-01-01T00:00:00Z"
+        ));
+        assert!(!match_op(
+            "2024-01-01T00:00:00Z",
+            FilterOp::Gt,
+            "2025-01-01T00:00:00Z"
+        ));
     }
 
     #[test]
@@ -201,8 +231,14 @@ mod tests {
     #[test]
     fn eval_single_value_eq() {
         let f = fields(&[("path", &["notes/foo.md"])]);
-        assert!(eval_clause(&clause("path", FilterOp::Eq, "notes/foo.md"), &f));
-        assert!(!eval_clause(&clause("path", FilterOp::Eq, "notes/bar.md"), &f));
+        assert!(eval_clause(
+            &clause("path", FilterOp::Eq, "notes/foo.md"),
+            &f
+        ));
+        assert!(!eval_clause(
+            &clause("path", FilterOp::Eq, "notes/bar.md"),
+            &f
+        ));
     }
 
     #[test]
@@ -218,7 +254,10 @@ mod tests {
         let f = fields(&[("meta.tags", &["rust", "go"])]);
         assert!(eval_clause(&clause("meta.tags", FilterOp::Eq, "rust"), &f));
         assert!(eval_clause(&clause("meta.tags", FilterOp::Eq, "go"), &f));
-        assert!(!eval_clause(&clause("meta.tags", FilterOp::Eq, "python"), &f));
+        assert!(!eval_clause(
+            &clause("meta.tags", FilterOp::Eq, "python"),
+            &f
+        ));
     }
 
     #[test]
@@ -229,13 +268,22 @@ mod tests {
         assert!(eval_clause(&clause("meta.tags", FilterOp::Ne, "rust"), &f));
         // Single-valued: ["rust"] — no value != "rust" → false
         let f_single = fields(&[("meta.tags", &["rust"])]);
-        assert!(!eval_clause(&clause("meta.tags", FilterOp::Ne, "rust"), &f_single));
+        assert!(!eval_clause(
+            &clause("meta.tags", FilterOp::Ne, "rust"),
+            &f_single
+        ));
     }
 
     #[test]
     fn eval_contains_on_path() {
         let f = fields(&[("path", &["notes/knowledge/foo.md"])]);
-        assert!(eval_clause(&clause("path", FilterOp::Contains, "knowledge"), &f));
-        assert!(!eval_clause(&clause("path", FilterOp::Contains, "archive"), &f));
+        assert!(eval_clause(
+            &clause("path", FilterOp::Contains, "knowledge"),
+            &f
+        ));
+        assert!(!eval_clause(
+            &clause("path", FilterOp::Contains, "archive"),
+            &f
+        ));
     }
 }

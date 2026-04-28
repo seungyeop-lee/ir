@@ -5,8 +5,8 @@
 // Cache key: sha256(model_id + "\0" + query + "\0" + doc_hash) → cached f64 score
 
 use crate::error::{Error, Result};
-use crate::llm::{LlamaBackend, env, model_load_params, models};
 use crate::llm::scoring::{self, Scorer};
+use crate::llm::{LlamaBackend, env, model_load_params, models};
 use llama_cpp_2::context::LlamaContext;
 use llama_cpp_2::model::LlamaModel;
 use std::path::Path;
@@ -62,7 +62,9 @@ impl Reranker {
             .map(|v| v.into_iter().next().unwrap_or(0.0))
     }
 
-    fn get_or_create_ctx(&self) -> Result<std::sync::MutexGuard<'_, Option<LlamaContext<'static>>>> {
+    fn get_or_create_ctx(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Option<LlamaContext<'static>>>> {
         let mut guard = self.cached_ctx.lock().unwrap();
         if guard.is_none() {
             let ctx = scoring::create_scoring_context(&self.model, self.backend, CONTEXT_SIZE)?;

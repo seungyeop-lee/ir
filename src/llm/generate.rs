@@ -65,9 +65,8 @@ pub fn generate(
     ]);
 
     let mut output = String::new();
-    let mut n_cur = n_prompt as i32;
 
-    for _ in 0..params.max_tokens {
+    for n_cur in (n_prompt as i32..).take(params.max_tokens) {
         let token = sampler.sample(&ctx, -1);
         sampler.accept(token);
 
@@ -85,7 +84,6 @@ pub fn generate(
             .map_err(|e| Error::Other(format!("batch next: {e}")))?;
         ctx.decode(&mut next)
             .map_err(|e| Error::Other(format!("decode next: {e}")))?;
-        n_cur += 1;
     }
 
     Ok(output)

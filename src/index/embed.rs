@@ -137,7 +137,8 @@ fn count_pending(conn: &Connection, force: bool) -> Result<usize> {
           )
         "
     };
-    conn.query_row(sql, [], |row| row.get(0)).map_err(Into::into)
+    conn.query_row(sql, [], |row| row.get(0))
+        .map_err(Into::into)
 }
 
 /// Load one batch of active content-addressed docs for embedding.
@@ -213,7 +214,13 @@ fn cleanup_orphaned(conn: &Connection) -> Result<()> {
         let mut stmt = conn.prepare(&sql)?;
         stmt.query_map(
             rusqlite::params_from_iter(orphaned.iter().map(|s| s.as_str())),
-            |r| Ok(format!("{}_{}", r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            |r| {
+                Ok(format!(
+                    "{}_{}",
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?
+                ))
+            },
         )?
         .filter_map(|r| r.ok())
         .collect()
@@ -244,8 +251,10 @@ mod tests {
     fn open_test_db() -> Connection {
         crate::db::ensure_sqlite_vec();
         let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(include_str!("../db/schema_base.sql")).unwrap();
-        conn.execute_batch(include_str!("../db/schema_triggers.sql")).unwrap();
+        conn.execute_batch(include_str!("../db/schema_base.sql"))
+            .unwrap();
+        conn.execute_batch(include_str!("../db/schema_triggers.sql"))
+            .unwrap();
         conn
     }
 

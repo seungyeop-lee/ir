@@ -64,7 +64,12 @@ pub fn scan(collection: &Collection) -> Result<Vec<ScannedFile>> {
             let meta = entry.metadata().ok();
             let mtime = meta.as_ref().and_then(|m| m.modified().ok());
             let birthtime = meta.as_ref().and_then(|m| m.created().ok());
-            files.push(ScannedFile { abs_path, rel_path, mtime, birthtime });
+            files.push(ScannedFile {
+                abs_path,
+                rel_path,
+                mtime,
+                birthtime,
+            });
         }
     }
 

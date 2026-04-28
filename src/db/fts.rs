@@ -15,7 +15,10 @@ fn fts5_escape(s: &str) -> String {
 /// Returns the original string unchanged if all tokens are stop words (avoids empty query).
 #[allow(dead_code)] // ^ public utility; tested; no production caller yet
 pub fn strip_stopwords(input: &str) -> String {
-    let filtered: Vec<&str> = input.split_whitespace().filter(|w| !is_stopword(w)).collect();
+    let filtered: Vec<&str> = input
+        .split_whitespace()
+        .filter(|w| !is_stopword(w))
+        .collect();
     if filtered.is_empty() {
         input.to_string()
     } else {
@@ -116,7 +119,11 @@ fn is_stopword(word: &str) -> bool {
 /// where AND semantics would nearly always return empty results.
 pub fn build_query_natural(input: &str) -> String {
     let all_terms: Vec<&str> = input.split_whitespace().collect();
-    let content_terms: Vec<&str> = all_terms.iter().copied().filter(|w| !is_stopword(w)).collect();
+    let content_terms: Vec<&str> = all_terms
+        .iter()
+        .copied()
+        .filter(|w| !is_stopword(w))
+        .collect();
 
     // Short keyword query: keep existing AND semantics
     if content_terms.len() <= 3 && content_terms.len() == all_terms.len() {
@@ -144,7 +151,9 @@ pub fn build_query_or(input: &str) -> String {
     let mut chars = input.chars().peekable();
     while let Some(&ch) = chars.peek() {
         match ch {
-            ' ' | '\t' => { chars.next(); }
+            ' ' | '\t' => {
+                chars.next();
+            }
             '-' => {
                 chars.next();
                 let term = read_term(&mut chars);
@@ -173,7 +182,11 @@ pub fn build_query_or(input: &str) -> String {
         pos
     } else {
         let neg = neg_parts.join(" ");
-        if pos.is_empty() { neg } else { format!("{pos} {neg}") }
+        if pos.is_empty() {
+            neg
+        } else {
+            format!("{pos} {neg}")
+        }
     }
 }
 
@@ -398,11 +411,26 @@ mod tests {
         // Question-format query: stop words stripped, remaining joined with OR
         let q = build_query_natural("what is the best way to invest money");
         assert!(q.contains("OR"), "long question should use OR: {q}");
-        assert!(!q.contains("\"what\""), "stop word 'what' should be stripped: {q}");
-        assert!(!q.contains("\"is\""), "stop word 'is' should be stripped: {q}");
-        assert!(!q.contains("\"the\""), "stop word 'the' should be stripped: {q}");
-        assert!(q.contains("\"best\""), "content term 'best' should remain: {q}");
-        assert!(q.contains("\"invest\""), "content term 'invest' should remain: {q}");
+        assert!(
+            !q.contains("\"what\""),
+            "stop word 'what' should be stripped: {q}"
+        );
+        assert!(
+            !q.contains("\"is\""),
+            "stop word 'is' should be stripped: {q}"
+        );
+        assert!(
+            !q.contains("\"the\""),
+            "stop word 'the' should be stripped: {q}"
+        );
+        assert!(
+            q.contains("\"best\""),
+            "content term 'best' should remain: {q}"
+        );
+        assert!(
+            q.contains("\"invest\""),
+            "content term 'invest' should remain: {q}"
+        );
     }
 
     #[test]
@@ -417,7 +445,10 @@ mod tests {
     fn natural_negation_preserved() {
         // Negated terms survive regardless of stop word list
         let q = build_query_natural("what is the best way -spam to do something useful");
-        assert!(q.contains("NOT \"spam\""), "negation must be preserved: {q}");
+        assert!(
+            q.contains("NOT \"spam\""),
+            "negation must be preserved: {q}"
+        );
         assert!(q.contains("OR"), "long query should use OR: {q}");
     }
 
@@ -425,7 +456,10 @@ mod tests {
     fn natural_short_with_stopwords_uses_or() {
         // 4+ terms even with stop words → switch to OR
         let q = build_query_natural("what is diabetes symptoms treatment");
-        assert!(q.contains("OR"), "mixed query with 5 terms should use OR: {q}");
+        assert!(
+            q.contains("OR"),
+            "mixed query with 5 terms should use OR: {q}"
+        );
     }
 
     // ── strip_stopwords tests ────────────────────────────────────────────────

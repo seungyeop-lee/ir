@@ -18,11 +18,11 @@ use crate::types::SearchMode;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::{fs::PermissionsExt, io::AsRawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::{fs::PermissionsExt, io::AsRawFd};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Per-collection routing information kept in DaemonState.
@@ -50,8 +50,12 @@ pub struct DaemonRequest {
     pub filter: Vec<crate::types::FilterClause>,
 }
 
-fn default_limit() -> usize { 10 }
-fn default_mode() -> String { "hybrid".into() }
+fn default_limit() -> usize {
+    10
+}
+fn default_mode() -> String {
+    "hybrid".into()
+}
 
 #[derive(Serialize)]
 struct DaemonResponse {
@@ -70,9 +74,12 @@ pub struct QueryResponse {
 }
 
 fn env_flag(name: &str) -> bool {
-    std::env::var(name)
-        .ok()
-        .is_some_and(|raw| matches!(raw.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+    std::env::var(name).ok().is_some_and(|raw| {
+        matches!(
+            raw.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 #[derive(Serialize, Deserialize)]
@@ -207,36 +214,34 @@ struct Tier2 {
 /// Send a search request to the daemon and return parsed results + pipeline log.
 pub fn query(req: &DaemonRequest) -> Result<QueryResponse> {
     let sock = config::daemon_socket_path();
-    let stream = UnixStream::connect(&sock)
-        .map_err(|e| Error::Other(format!("daemon connect: {e}")))?;
+    let stream =
+        UnixStream::connect(&sock).map_err(|e| Error::Other(format!("daemon connect: {e}")))?;
 
     let mut writer = stream.try_clone().map_err(Error::Io)?;
     let reader = BufReader::new(stream);
 
-    let payload = serde_json::to_string(req)
-        .map_err(|e| Error::Other(format!("serialize: {e}")))?;
+    let payload =
+        serde_json::to_string(req).map_err(|e| Error::Other(format!("serialize: {e}")))?;
     writer.write_all(payload.as_bytes()).map_err(Error::Io)?;
     writer.write_all(b"\n").map_err(Error::Io)?;
 
-    let line = reader.lines()
+    let line = reader
+        .lines()
         .next()
         .ok_or_else(|| Error::Other("daemon closed connection".into()))?
         .map_err(Error::Io)?;
 
-    let resp: serde_json::Value = serde_json::from_str(&line)
-        .map_err(|e| Error::Other(format!("parse response: {e}")))?;
+    let resp: serde_json::Value =
+        serde_json::from_str(&line).map_err(|e| Error::Other(format!("parse response: {e}")))?;
 
     if resp["ok"].as_bool().unwrap_or(false) {
-        let results: Vec<DaemonResult> = serde_json::from_value(
-            resp["results"].clone()
-        ).map_err(|e| Error::Other(format!("parse results: {e}")))?;
-        let log: Vec<String> = serde_json::from_value(
-            resp["log"].clone()
-        ).unwrap_or_default();
+        let results: Vec<DaemonResult> = serde_json::from_value(resp["results"].clone())
+            .map_err(|e| Error::Other(format!("parse results: {e}")))?;
+        let log: Vec<String> = serde_json::from_value(resp["log"].clone()).unwrap_or_default();
         Ok(QueryResponse { results, log })
     } else {
         Err(Error::Other(
-            resp["error"].as_str().unwrap_or("daemon error").to_string()
+            resp["error"].as_str().unwrap_or("daemon error").to_string(),
         ))
     }
 }
@@ -269,7 +274,10 @@ impl DaemonState {
             })
             .collect();
         let config_mtime = config_mtime();
-        Ok(Self { collections, config_mtime })
+        Ok(Self {
+            collections,
+            config_mtime,
+        })
     }
 
     /// Reload if config.yml has been modified since last load.
@@ -315,7 +323,9 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
     }
 
     // Remove stale files; safe — we hold the lock.
-    if sock_path.exists() { std::fs::remove_file(&sock_path).map_err(Error::Io)?; }
+    if sock_path.exists() {
+        std::fs::remove_file(&sock_path).map_err(Error::Io)?;
+    }
     let _ = std::fs::remove_file(&tier2_path);
 
     // Validate + pre-download env-configured models before loading.
@@ -327,7 +337,10 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
         .map_err(|e| Error::Other(format!("model env check: {e}")))?;
 
     let gpu_on = crate::llm::gpu_layers() > 0;
-    eprintln!("loading models (Metal: {})...", if gpu_on { "on" } else { "off" });
+    eprintln!(
+        "loading models (Metal: {})...",
+        if gpu_on { "on" } else { "off" }
+    );
 
     // Tier-1: load embedder only.
     let embedder = crate::llm::embedding::Embedder::load_default()
@@ -355,8 +368,16 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
     // proceed (is_running() will now return true, preventing duplicate spawns).
     drop(startup_lock);
 
-    let timeout_msg = if timeout_secs > 0 { format!("  timeout={}s", timeout_secs) } else { "  timeout=never".into() };
-    eprintln!("daemon ready (tier 1)  socket={}{}", sock_path.display(), timeout_msg);
+    let timeout_msg = if timeout_secs > 0 {
+        format!("  timeout={}s", timeout_secs)
+    } else {
+        "  timeout=never".into()
+    };
+    eprintln!(
+        "daemon ready (tier 1)  socket={}{}",
+        sock_path.display(),
+        timeout_msg
+    );
 
     // Tier-2: load expander+reranker in background; signal readiness via tier2_path.
     // Race-free: send to channel BEFORE writing tier2_path. Main thread's try_recv()
@@ -371,7 +392,10 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
         // Wrap a loaded Combined into boxed trait objects for the pipeline.
         fn from_combined(c: std::sync::Arc<crate::llm::combined::Combined>) -> Pair {
             eprintln!("  tier-2: combined mode ({})", c.name());
-            (Some(Box::new(c.clone()) as ExpBox), Some(Box::new(c) as ScoBox))
+            (
+                Some(Box::new(c.clone()) as ExpBox),
+                Some(Box::new(c) as ScoBox),
+            )
         }
 
         // Load expander + reranker.
@@ -408,8 +432,12 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
                 (Some(_), None) if allow_expand_without_scorer => {
                     eprintln!("  warn: reranker unavailable — expansion kept via research override")
                 }
-                (Some(_), None) => eprintln!("  warn: reranker unavailable — expansion disabled (harmful without scorer)"),
-                (None, Some(_)) => eprintln!("  warn: expander unavailable — query expansion disabled; reranking active"),
+                (Some(_), None) => eprintln!(
+                    "  warn: reranker unavailable — expansion disabled (harmful without scorer)"
+                ),
+                (None, Some(_)) => eprintln!(
+                    "  warn: expander unavailable — query expansion disabled; reranking active"
+                ),
                 (None, None) => {}
             }
             // Expander without reranker produces worse results than no expansion at all; suppress it.
@@ -427,23 +455,33 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
         // Combined and dedicated are mutually exclusive explicit modes; no cross-mode fallback.
         let has_combined_env = std::env::var_os(crate::llm::env::COMBINED_MODEL).is_some()
             || std::env::var_os(crate::llm::env::QWEN_MODEL).is_some();
-        let has_dedicated_env = crate::llm::env::EXPANDER_MODEL.iter().any(|k| std::env::var_os(k).is_some())
-            || crate::llm::env::RERANKER_MODEL.iter().any(|k| std::env::var_os(k).is_some());
+        let has_dedicated_env = crate::llm::env::EXPANDER_MODEL
+            .iter()
+            .any(|k| std::env::var_os(k).is_some())
+            || crate::llm::env::RERANKER_MODEL
+                .iter()
+                .any(|k| std::env::var_os(k).is_some());
 
         if has_combined_env && has_dedicated_env {
-            eprintln!("  warn: IR_COMBINED_MODEL and dedicated model env vars are both set — \
-                       using combined mode; unset IR_COMBINED_MODEL to use dedicated models");
+            eprintln!(
+                "  warn: IR_COMBINED_MODEL and dedicated model env vars are both set — \
+                       using combined mode; unset IR_COMBINED_MODEL to use dedicated models"
+            );
         }
 
         let (expander, scorer): Pair = if has_combined_env {
             match crate::llm::combined::Combined::try_load_default() {
                 Ok(Some(c)) => from_combined(std::sync::Arc::new(c)),
                 Ok(None) => {
-                    eprintln!("  note: IR_COMBINED_MODEL set but model file not found — tier-2 disabled");
+                    eprintln!(
+                        "  note: IR_COMBINED_MODEL set but model file not found — tier-2 disabled"
+                    );
                     (None, None)
                 }
                 Err(e) => {
-                    eprintln!("  warn: combined model load failed ({e}) — falling back to dedicated models");
+                    eprintln!(
+                        "  warn: combined model load failed ({e}) — falling back to dedicated models"
+                    );
                     load_dedicated()
                 }
             }
@@ -538,12 +576,21 @@ fn handle_connection(
     }
 
     let resp = match handle_request(line.trim_end(), hybrid, state) {
-        Ok((results, log)) => DaemonResponse { ok: true, error: None, results: Some(results), log },
-        Err(e) => DaemonResponse { ok: false, error: Some(e.to_string()), results: None, log: vec![] },
+        Ok((results, log)) => DaemonResponse {
+            ok: true,
+            error: None,
+            results: Some(results),
+            log,
+        },
+        Err(e) => DaemonResponse {
+            ok: false,
+            error: Some(e.to_string()),
+            results: None,
+            log: vec![],
+        },
     };
 
-    let json = serde_json::to_string(&resp)
-        .map_err(|e| Error::Other(format!("serialize: {e}")))?;
+    let json = serde_json::to_string(&resp).map_err(|e| Error::Other(format!("serialize: {e}")))?;
     writer.write_all(json.as_bytes()).map_err(Error::Io)?;
     writer.write_all(b"\n").map_err(Error::Io)?;
     writer.flush().map_err(Error::Io)?;
@@ -555,23 +602,27 @@ fn handle_request(
     hybrid: &search::hybrid::HybridSearch,
     state: &DaemonState,
 ) -> Result<(Vec<DaemonResult>, Vec<String>)> {
-    let req: DaemonRequest = serde_json::from_str(line)
-        .map_err(|e| Error::Other(format!("parse request: {e}")))?;
+    let req: DaemonRequest =
+        serde_json::from_str(line).map_err(|e| Error::Other(format!("parse request: {e}")))?;
 
     let mode: SearchMode = req.mode.parse().map_err(Error::Other)?;
 
-    let selected: Vec<(&String, &CollectionInfo)> = req.collections.iter()
+    let selected: Vec<(&String, &CollectionInfo)> = req
+        .collections
+        .iter()
         .filter_map(|name| state.collections.get(name).map(|info| (name, info)))
         .collect();
 
     if selected.is_empty() {
         return Err(Error::Other(format!(
-            "no matching collections for {:?}", req.collections
+            "no matching collections for {:?}",
+            req.collections
         )));
     }
 
     // Fresh RW connections per query — sees live index updates, enables cache writes.
-    let dbs: Vec<CollectionDb> = selected.iter()
+    let dbs: Vec<CollectionDb> = selected
+        .iter()
         .map(|(name, info)| {
             CollectionDb::open_rw(
                 name.as_str(),
@@ -619,16 +670,22 @@ fn handle_request(
         }
     };
 
-    Ok((results.into_iter().map(|r| DaemonResult {
-        collection: r.collection,
-        path: r.path,
-        title: r.title,
-        score: r.score,
-        snippet: r.snippet.unwrap_or_default(),
-        hash: r.hash,
-        doc_id: r.doc_id,
-        chunk_seq: r.chunk_seq,
-    }).collect(), log))
+    Ok((
+        results
+            .into_iter()
+            .map(|r| DaemonResult {
+                collection: r.collection,
+                path: r.path,
+                title: r.title,
+                score: r.score,
+                snippet: r.snippet.unwrap_or_default(),
+                hash: r.hash,
+                doc_id: r.doc_id,
+                chunk_seq: r.chunk_seq,
+            })
+            .collect(),
+        log,
+    ))
 }
 
 // ── Stop / status ─────────────────────────────────────────────────────────────
@@ -650,10 +707,14 @@ pub fn stop() -> Result<()> {
     }
 
     let pid_str = std::fs::read_to_string(&pid_path).map_err(Error::Io)?;
-    let pid: i32 = pid_str.trim().parse()
+    let pid: i32 = pid_str
+        .trim()
+        .parse()
         .map_err(|_| Error::Other(format!("invalid pid file: {pid_str:?}")))?;
 
-    unsafe extern "C" { fn kill(pid: i32, sig: i32) -> i32; }
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
     // Probe first (sig=0): verifies the process exists without sending a signal.
     if unsafe { kill(pid, 0) } != 0 {
         eprintln!("warning: pid {pid} not found — removing stale pid file");
@@ -674,8 +735,7 @@ pub fn stop() -> Result<()> {
 
 pub fn status() -> Result<()> {
     if is_running() {
-        let pid = std::fs::read_to_string(config::daemon_pid_path())
-            .unwrap_or_else(|_| "?".into());
+        let pid = std::fs::read_to_string(config::daemon_pid_path()).unwrap_or_else(|_| "?".into());
         println!("running  pid={}", pid.trim());
     } else {
         println!("not running");

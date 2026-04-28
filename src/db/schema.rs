@@ -67,14 +67,18 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<()> {
              JOIN content c ON d.hash = c.hash \
              WHERE d.active = 1",
         )?;
-        stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?
-            .collect::<std::result::Result<Vec<_>, _>>()?
+        stmt.query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?
     };
 
     // document_metadata table already created by schema_base.sql (CREATE TABLE IF NOT EXISTS)
     let tx = conn.unchecked_transaction()?;
     for (doc_id, content) in &docs {
-        let Some(mapping) = crate::frontmatter::extract(content) else { continue };
+        let Some(mapping) = crate::frontmatter::extract(content) else {
+            continue;
+        };
         for (key, value) in crate::frontmatter::flatten(&mapping) {
             tx.execute(
                 "INSERT OR IGNORE INTO document_metadata (document_id, key, value) \

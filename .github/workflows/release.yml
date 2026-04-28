@@ -1,0 +1,259 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    name: macOS (universal)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: macos
+          save-if: false
+
+      # --- main binary (universal for Homebrew and mise autodetection) ---
+      - name: Build ir (aarch64)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: cargo build --release --target aarch64-apple-darwin --bin ir
+
+      - name: Build ir (x86_64)
+        env:
+          MACOSX_DEPLOYMENT_TARGET: '10.15'
+        run: cargo build --release --target x86_64-apple-darwin --bin ir
+
+      - name: Package ir (universal)
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          lipo -create -output ir \
+            target/aarch64-apple-darwin/release/ir \
+            target/x86_64-apple-darwin/release/ir
+          tar -czf "ir-${VERSION}-darwin-universal.tar.gz" ir
+          rm -f ir
+
+      - name: Build Homebrew bottle
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          BOTTLE_DIR=$(mktemp -d)
+          mkdir -p "$BOTTLE_DIR/ir/${VERSION}/bin"
+          lipo -create -output "$BOTTLE_DIR/ir/${VERSION}/bin/ir" \
+            target/aarch64-apple-darwin/release/ir \
+            target/x86_64-apple-darwin/release/ir
+          tar -czf "ir-${VERSION}.all.bottle.tar.gz" -C "$BOTTLE_DIR" ir
+          rm -rf "$BOTTLE_DIR"
+
+      # --- preprocessors (universal binary via lipo, matches existing release format) ---
+      - name: Build & package preprocessors
+        run: |
+          for entry in \
+            "preprocessors/ko/lindera-tokenize:lindera-tokenize" \
+            "preprocessors/ja/lindera-tokenize:lindera-tokenize-ja" \
+            "preprocessors/zh/bigram-tokenize:bigram-tokenize-zh"
+          do
+            dir="${entry%%:*}"
+            bin="${entry##*:}"
+
+            MACOSX_DEPLOYMENT_TARGET=11.0 \
+              cargo build --release --target aarch64-apple-darwin \
+                --manifest-path "$dir/Cargo.toml"
+            MACOSX_DEPLOYMENT_TARGET=10.15 \
+              cargo build --release --target x86_64-apple-darwin \
+                --manifest-path "$dir/Cargo.toml"
+
+            lipo -create -output "$bin" \
+              "$dir/target/aarch64-apple-darwin/release/$bin" \
+              "$dir/target/x86_64-apple-darwin/release/$bin"
+
+            tar -czf "${bin}-darwin-universal.tar.gz" "$bin"
+            rm -f "$bin"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos
+          path: '*.tar.gz'
+
+  build-linux-x86_64:
+    name: Linux x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: linux-x86_64
+          save-if: false
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools
+
+      - name: Build ir
+        run: |
+          cargo build --release --target x86_64-unknown-linux-musl --bin ir \
+            --no-default-features --features llama-openmp
+
+      - name: Package ir
+        run: tar -czf ir-linux-x86_64.tar.gz -C target/x86_64-unknown-linux-musl/release ir
+
+      - name: Build & package preprocessors
+        run: |
+          for entry in \
+            "preprocessors/ko/lindera-tokenize:lindera-tokenize" \
+            "preprocessors/ja/lindera-tokenize:lindera-tokenize-ja" \
+            "preprocessors/zh/bigram-tokenize:bigram-tokenize-zh"
+          do
+            dir="${entry%%:*}"
+            bin="${entry##*:}"
+            cargo build --release --target x86_64-unknown-linux-musl \
+              --manifest-path "$dir/Cargo.toml"
+            tar -czf "${bin}-linux-x86_64.tar.gz" \
+              -C "$dir/target/x86_64-unknown-linux-musl/release" "$bin"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-x86_64
+          path: '*.tar.gz'
+
+  build-linux-aarch64:
+    name: Linux aarch64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: aarch64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: linux-aarch64
+          save-if: false
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools
+
+      - name: Build ir
+        run: |
+          cargo build --release --target aarch64-unknown-linux-musl --bin ir \
+            --no-default-features --features llama-openmp
+
+      - name: Package ir
+        run: tar -czf ir-linux-aarch64.tar.gz -C target/aarch64-unknown-linux-musl/release ir
+
+      - name: Build & package preprocessors
+        run: |
+          for entry in \
+            "preprocessors/ko/lindera-tokenize:lindera-tokenize" \
+            "preprocessors/ja/lindera-tokenize:lindera-tokenize-ja" \
+            "preprocessors/zh/bigram-tokenize:bigram-tokenize-zh"
+          do
+            dir="${entry%%:*}"
+            bin="${entry##*:}"
+            cargo build --release --target aarch64-unknown-linux-musl \
+              --manifest-path "$dir/Cargo.toml"
+            tar -czf "${bin}-linux-aarch64.tar.gz" \
+              -C "$dir/target/aarch64-unknown-linux-musl/release" "$bin"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-aarch64
+          path: '*.tar.gz'
+
+  release:
+    name: Release
+    needs: [build-macos, build-linux-x86_64, build-linux-aarch64]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: sha256sum *.tar.gz | sort > SHA256SUMS
+
+      - name: List release assets
+        run: ls -lh *.tar.gz SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --generate-notes *.tar.gz SHA256SUMS
+
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION=${TAG#v}
+          TARBALL="ir-${VERSION}-darwin-universal.tar.gz"
+          BOTTLE="ir-${VERSION}.all.bottle.tar.gz"
+          SHA256=$(grep "$TARBALL" SHA256SUMS | awk '{print $1}')
+          BOTTLE_SHA256=$(grep "$BOTTLE" SHA256SUMS | awk '{print $1}')
+          DESC=$(grep '^description' Cargo.toml | head -1 | sed 's/description = "\(.*\)"/\1/')
+
+          gh auth setup-git
+          gh repo clone vlwkaos/homebrew-tap tap-repo
+          cat > tap-repo/Formula/ir.rb <<FORMULA
+          class Ir < Formula
+            desc "${DESC}"
+            homepage "https://github.com/vlwkaos/ir"
+            url "https://github.com/vlwkaos/ir/releases/download/${TAG}/${TARBALL}"
+            version "${VERSION}"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            bottle do
+              root_url "https://github.com/vlwkaos/ir/releases/download/${TAG}"
+              sha256 cellar: :any_skip_relocation, all: "${BOTTLE_SHA256}"
+            end
+
+            def install
+              bin.install "ir"
+            end
+
+            test do
+              assert_predicate bin/"ir", :executable?
+            end
+          end
+          FORMULA
+
+          cd tap-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ir.rb
+          git commit -m "ir ${VERSION}"
+          git push

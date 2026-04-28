@@ -98,10 +98,9 @@ pub fn update(
         // ^ use filesystem timestamps so date filters work correctly.
         //   birthtime falls back to mtime on Linux filesystems that don't track it.
         let now = Utc::now();
-        let mtime = f.mtime
-            .map(chrono::DateTime::<Utc>::from)
-            .unwrap_or(now);
-        let birthtime = f.birthtime
+        let mtime = f.mtime.map(chrono::DateTime::<Utc>::from).unwrap_or(now);
+        let birthtime = f
+            .birthtime
             .map(chrono::DateTime::<Utc>::from)
             .unwrap_or(mtime);
         scanned.insert(
@@ -144,16 +143,24 @@ pub fn update(
             if has_preprocessor {
                 // ! Triggers disabled — must manually remove from FTS.
                 let id: Option<i64> = conn
-                    .query_row("SELECT id FROM documents WHERE path = ?1", [rel_path], |r| {
-                        r.get(0)
-                    })
+                    .query_row(
+                        "SELECT id FROM documents WHERE path = ?1",
+                        [rel_path],
+                        |r| r.get(0),
+                    )
                     .ok();
-                conn.execute("UPDATE documents SET active = 0 WHERE path = ?1", [rel_path])?;
+                conn.execute(
+                    "UPDATE documents SET active = 0 WHERE path = ?1",
+                    [rel_path],
+                )?;
                 if let Some(id) = id {
                     conn.execute("DELETE FROM documents_fts WHERE rowid = ?1", [id])?;
                 }
             } else {
-                conn.execute("UPDATE documents SET active = 0 WHERE path = ?1", [rel_path])?;
+                conn.execute(
+                    "UPDATE documents SET active = 0 WHERE path = ?1",
+                    [rel_path],
+                )?;
             }
             pb.inc(1);
             pb.set_message(format!("deactivate {rel_path}"));
@@ -161,23 +168,34 @@ pub fn update(
 
         // 6. Add new files
         for rel_path in &d.to_add {
-            let (hash, content, file_mtime, file_birthtime) = scanned
-                .get(rel_path)
-                .ok_or_else(|| crate::error::Error::Other(format!("missing scan entry: {rel_path}")))?;
+            let (hash, content, file_mtime, file_birthtime) =
+                scanned.get(rel_path).ok_or_else(|| {
+                    crate::error::Error::Other(format!("missing scan entry: {rel_path}"))
+                })?;
             let raw_text = String::from_utf8_lossy(content).into_owned();
             let text = raw_text.replace("\r\n", "\n");
             let title = chunker::extract_title(&text, rel_path);
 
-            store_document(conn, rel_path, &title, hash, &text, file_birthtime, file_mtime, chain.as_mut())?;
+            store_document(
+                conn,
+                rel_path,
+                &title,
+                hash,
+                &text,
+                file_birthtime,
+                file_mtime,
+                chain.as_mut(),
+            )?;
             pb.inc(1);
             pb.set_message(format!("add {rel_path}"));
         }
 
         // 7. Update changed files
         for rel_path in &d.to_update {
-            let (hash, content, file_mtime, _file_birthtime) = scanned
-                .get(rel_path)
-                .ok_or_else(|| crate::error::Error::Other(format!("missing scan entry: {rel_path}")))?;
+            let (hash, content, file_mtime, _file_birthtime) =
+                scanned.get(rel_path).ok_or_else(|| {
+                    crate::error::Error::Other(format!("missing scan entry: {rel_path}"))
+                })?;
             let raw_text = String::from_utf8_lossy(content).into_owned();
             let text = raw_text.replace("\r\n", "\n");
             let title = chunker::extract_title(&text, rel_path);
@@ -192,9 +210,11 @@ pub fn update(
             if has_preprocessor {
                 // ! Triggers disabled — must manually remove from FTS before delete.
                 let id: Option<i64> = conn
-                    .query_row("SELECT id FROM documents WHERE path = ?1", [rel_path], |r| {
-                        r.get(0)
-                    })
+                    .query_row(
+                        "SELECT id FROM documents WHERE path = ?1",
+                        [rel_path],
+                        |r| r.get(0),
+                    )
                     .ok();
                 if let Some(id) = id {
                     conn.execute("DELETE FROM documents_fts WHERE rowid = ?1", [id])?;
@@ -202,7 +222,16 @@ pub fn update(
             }
             conn.execute("DELETE FROM documents WHERE path = ?1", [rel_path])?;
             // ^ ON DELETE CASCADE removes document_metadata rows for this document
-            store_document(conn, rel_path, &title, hash, &text, &created_at, file_mtime, chain.as_mut())?;
+            store_document(
+                conn,
+                rel_path,
+                &title,
+                hash,
+                &text,
+                &created_at,
+                file_mtime,
+                chain.as_mut(),
+            )?;
             pb.inc(1);
             pb.set_message(format!("update {rel_path}"));
         }

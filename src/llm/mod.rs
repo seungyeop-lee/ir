@@ -55,18 +55,9 @@ pub mod hf_repos {
         // ! uppercase on HF; local name uses lowercase q4_k_m
         "qmd-query-expansion-1.7B-Q4_K_M.gguf",
     );
-    pub const QWEN35_0_8B: (&str, &str) = (
-        "unsloth/Qwen3.5-0.8B-GGUF",
-        "Qwen3.5-0.8B-Q8_0.gguf",
-    );
-    pub const QWEN35_2B: (&str, &str) = (
-        "unsloth/Qwen3.5-2B-GGUF",
-        "Qwen3.5-2B-Q4_K_M.gguf",
-    );
-    pub const BGE_M3: (&str, &str) = (
-        "ggml-org/bge-m3-Q8_0-GGUF",
-        "bge-m3-q8_0.gguf",
-    );
+    pub const QWEN35_0_8B: (&str, &str) = ("unsloth/Qwen3.5-0.8B-GGUF", "Qwen3.5-0.8B-Q8_0.gguf");
+    pub const QWEN35_2B: (&str, &str) = ("unsloth/Qwen3.5-2B-GGUF", "Qwen3.5-2B-Q4_K_M.gguf");
+    pub const BGE_M3: (&str, &str) = ("ggml-org/bge-m3-Q8_0-GGUF", "bge-m3-q8_0.gguf");
 
     /// Returns `(repo_id, hf_filename)` for a local model filename, or `None`.
     pub fn for_filename(filename: &str) -> Option<(&'static str, &'static str)> {
@@ -83,7 +74,14 @@ pub mod hf_repos {
 
     /// All known (repo_id, hf_filename) pairs.
     pub fn all_known_repos() -> &'static [(&'static str, &'static str)] {
-        &[EMBEDDING, RERANKER, EXPANDER, QWEN35_0_8B, QWEN35_2B, BGE_M3]
+        &[
+            EMBEDDING,
+            RERANKER,
+            EXPANDER,
+            QWEN35_0_8B,
+            QWEN35_2B,
+            BGE_M3,
+        ]
     }
 
     /// Reverse lookup: HF repo ID → local canonical filename. Case-insensitive.
@@ -401,7 +399,9 @@ mod tests {
     fn all_known_repos_contains_bge_m3() {
         let repos = hf_repos::all_known_repos();
         assert!(
-            repos.iter().any(|(repo_id, _)| *repo_id == hf_repos::BGE_M3.0),
+            repos
+                .iter()
+                .any(|(repo_id, _)| *repo_id == hf_repos::BGE_M3.0),
             "all_known_repos must include BGE_M3"
         );
     }
