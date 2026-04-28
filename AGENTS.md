@@ -100,15 +100,26 @@ Idle timeout: 3600s (configurable via `ir daemon start --timeout`).
 
 ## Release
 
-release.flow: rust
+release.flow: rust-ci
+
+CI (GitHub Actions) handles build, GitHub release, and Homebrew tap on tag push.
 
 ```bash
-# Homebrew + crates.io
-~/.claude/skills/rust-release/release.sh "$VERSION" "ir" "vlwkaos/ir" "$HOME/ws-ps/homebrew-tap"
+# Bump version
+sed -i '' 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
+cargo check --quiet  # updates Cargo.lock
+
+# Commit + tag + push (triggers CI release workflow)
+git add Cargo.toml Cargo.lock CHANGELOG.md
+git commit -m "v$VERSION"
+git tag -a "v$VERSION" -m "v$VERSION"
+git push origin main --tags
+
+# Publish to crates.io
 cargo publish   # publishes as ir-search
 ```
 
-Requires `dangerouslyDisableSandbox: true` — gh CLI reads `~/.config/gh` (sandbox read deny list); tap writes to `~/ws-ps/homebrew-tap` (add to sandbox write allowlist to avoid this).
+Prerequisites: `TAP_TOKEN` secret set in GitHub repo settings (used by CI to update Homebrew tap).
 
 ## good-to-go
 
