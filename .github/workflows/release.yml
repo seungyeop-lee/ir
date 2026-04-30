@@ -176,7 +176,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --generate-notes *.tar.gz SHA256SUMS
+        run: |
+          VERSION=${TAG#v}
+          awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md > release-notes.md
+          gh release create "$TAG" --notes-file release-notes.md *.tar.gz SHA256SUMS
 
       - name: Update Homebrew tap
         env:
