@@ -52,7 +52,6 @@ jobs:
           key: macos
           save-if: false
 
-      # --- main binary (universal for Homebrew and mise autodetection) ---
       - name: Build ir (aarch64)
         env:
           MACOSX_DEPLOYMENT_TARGET: '11.0'
@@ -83,32 +82,6 @@ jobs:
           tar -czf "ir-${VERSION}.all.bottle.tar.gz" -C "$BOTTLE_DIR" ir
           rm -rf "$BOTTLE_DIR"
 
-      # --- preprocessors (universal binary via lipo, matches existing release format) ---
-      - name: Build & package preprocessors
-        run: |
-          for entry in \
-            "preprocessors/ko/lindera-tokenize:lindera-tokenize" \
-            "preprocessors/ja/lindera-tokenize:lindera-tokenize-ja" \
-            "preprocessors/zh/bigram-tokenize:bigram-tokenize-zh"
-          do
-            dir="${entry%%:*}"
-            bin="${entry##*:}"
-
-            MACOSX_DEPLOYMENT_TARGET=11.0 \
-              cargo build --release --target aarch64-apple-darwin \
-                --manifest-path "$dir/Cargo.toml"
-            MACOSX_DEPLOYMENT_TARGET=10.15 \
-              cargo build --release --target x86_64-apple-darwin \
-                --manifest-path "$dir/Cargo.toml"
-
-            lipo -create -output "$bin" \
-              "$dir/target/aarch64-apple-darwin/release/$bin" \
-              "$dir/target/x86_64-apple-darwin/release/$bin"
-
-            tar -czf "${bin}-darwin-universal.tar.gz" "$bin"
-            rm -f "$bin"
-          done
-
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: macos
@@ -133,30 +106,18 @@ jobs:
           save-if: false
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools
+        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools perl
 
       - name: Build ir
+        env:
+          OPENSSL_STATIC: '1'
+          OPENSSL_VENDORED: '1'
         run: |
           cargo build --release --target x86_64-unknown-linux-musl --bin ir \
             --no-default-features --features llama-openmp
 
       - name: Package ir
         run: tar -czf ir-linux-x86_64.tar.gz -C target/x86_64-unknown-linux-musl/release ir
-
-      - name: Build & package preprocessors
-        run: |
-          for entry in \
-            "preprocessors/ko/lindera-tokenize:lindera-tokenize" \
-            "preprocessors/ja/lindera-tokenize:lindera-tokenize-ja" \
-            "preprocessors/zh/bigram-tokenize:bigram-tokenize-zh"
-          do
-            dir="${entry%%:*}"
-            bin="${entry##*:}"
-            cargo build --release --target x86_64-unknown-linux-musl \
-              --manifest-path "$dir/Cargo.toml"
-            tar -czf "${bin}-linux-x86_64.tar.gz" \
-              -C "$dir/target/x86_64-unknown-linux-musl/release" "$bin"
-          done
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -182,30 +143,18 @@ jobs:
           save-if: false
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools
+        run: sudo apt-get update && sudo apt-get install -y cmake musl-tools perl
 
       - name: Build ir
+        env:
+          OPENSSL_STATIC: '1'
+          OPENSSL_VENDORED: '1'
         run: |
           cargo build --release --target aarch64-unknown-linux-musl --bin ir \
             --no-default-features --features llama-openmp
 
       - name: Package ir
         run: tar -czf ir-linux-aarch64.tar.gz -C target/aarch64-unknown-linux-musl/release ir
-
-      - name: Build & package preprocessors
-        run: |
-          for entry in \
-            "preprocessors/ko/lindera-tokenize:lindera-tokenize" \
-            "preprocessors/ja/lindera-tokenize:lindera-tokenize-ja" \
-            "preprocessors/zh/bigram-tokenize:bigram-tokenize-zh"
-          do
-            dir="${entry%%:*}"
-            bin="${entry##*:}"
-            cargo build --release --target aarch64-unknown-linux-musl \
-              --manifest-path "$dir/Cargo.toml"
-            tar -czf "${bin}-linux-aarch64.tar.gz" \
-              -C "$dir/target/aarch64-unknown-linux-musl/release" "$bin"
-          done
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
