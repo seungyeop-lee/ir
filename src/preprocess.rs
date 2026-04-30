@@ -268,19 +268,22 @@ mod tests {
     // Writes a Python filter script that drops '.' lines and flushes after each output.
     // grep/sed/tr/sort all block-buffer in pipe mode on macOS — use Python with flush=True
     // (same reason cat is used for other protocol tests — see CLAUDE.md).
-    // Uses PID + atomic seq so concurrent test binaries (lib + main) never share a filename.
+    // Uses thread ID: each test runs in its own thread, so this is unique even when
+    // lib and main binaries both compile this module and run tests concurrently.
     #[cfg(unix)]
     fn write_dot_filter_script() -> String {
         use std::os::unix::fs::PermissionsExt;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static SEQ: AtomicUsize = AtomicUsize::new(0);
-        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        // ThreadId debug format is "ThreadId(N)" — extract the number.
+        let tid = format!("{:?}", std::thread::current().id())
+            .chars()
+            .filter(|c| c.is_ascii_digit())
+            .collect::<String>();
         const SCRIPT: &[u8] = b"#!/usr/bin/env python3\nimport sys\nfor line in sys.stdin:\n    s=line.rstrip('\\n')\n    if s != '.':\n        print(s, flush=True)\n";
         let path = format!(
             "{}/ir-test-dot-filter-{}-{}.py",
             std::env::temp_dir().display(),
             std::process::id(),
-            n
+            tid
         );
         std::fs::write(&path, SCRIPT).unwrap();
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
