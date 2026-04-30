@@ -45,7 +45,11 @@ impl PreprocessHandle {
         let raw_program = parts.next()?;
         let expanded = expand_path(raw_program);
         let program = expanded.as_os_str();
-        let args: Vec<&str> = parts.collect();
+        // Preprocessor commands embed variable references in args (e.g. --dict $IR_DIR/preprocessors/jieba);
+        // Command::args() does not invoke a shell, so variables must be expanded explicitly.
+        let args: Vec<std::ffi::OsString> = parts
+            .map(|a| expand_path(a).into_os_string())
+            .collect();
 
         match Command::new(program)
             .args(&args)
@@ -306,5 +310,45 @@ mod tests {
         let out = handle.process_text(text).unwrap();
         assert_eq!(out, "first line\n\nsecond line\n\nthird line");
         std::fs::remove_file(&path).ok();
+    }
+
+    // Requires: ir preprocessor install zh
+    // Run: cargo test -- --ignored zh_preprocessor_tokenizes_chinese
+    #[cfg(unix)]
+    #[ignore]
+    #[test]
+    fn zh_preprocessor_tokenizes_chinese() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let config = match crate::config::Config::load() {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let cmd_str = match config.preprocessors.get("zh") {
+            Some(cmd) => cmd.clone(),
+            None => return, // zh not registered — skip
+        };
+        // IR_DIR must be set for $IR_DIR/... expansion in the command
+        unsafe { std::env::set_var("IR_DIR", crate::config::ir_dir()) };
+
+        let mut handle = match PreprocessHandle::spawn(&cmd_str) {
+            Some(h) => h,
+            None => panic!("zh preprocessor is registered but failed to spawn: {cmd_str}"),
+        };
+
+        // Segmentation: jieba must split 你好世界 into separate tokens
+        let out = handle.process_line("你好世界").unwrap();
+        assert_ne!(out, "你好世界", "jieba must segment Chinese words (got identical output)");
+        assert!(!out.is_empty(), "jieba must produce output for Chinese text");
+
+        // ASCII must pass through unchanged — the sentinel protocol relies on this.
+        // (Cannot use IRSENTINEL itself as content: the read loop would treat its echo as the
+        // sentinel terminator and return "" — use a different ASCII word instead.)
+        let ascii_out = handle.process_line("hello").unwrap();
+        assert_eq!(ascii_out, "hello", "ASCII words must pass through zh preprocessor unchanged");
+
+        // Punctuation line: must not deadlock; result is either passed through or empty
+        let _ = handle.process_line("。").unwrap();
     }
 }
