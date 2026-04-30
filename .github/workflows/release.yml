@@ -109,9 +109,6 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y cmake musl-tools perl
 
       - name: Build ir
-        env:
-          OPENSSL_STATIC: '1'
-          OPENSSL_VENDORED: '1'
         run: |
           cargo build --release --target x86_64-unknown-linux-musl --bin ir \
             --no-default-features --features llama-openmp

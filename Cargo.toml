@@ -47,6 +47,11 @@ llama-cpp-2 = { version = "0.1.137", default-features = false }
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 llama-cpp-2 = { version = "0.1.137", default-features = false }
 
+# musl targets have no system OpenSSL; force vendored (compiled from source).
+# Feature unification applies it to all transitive openssl users (hf-hub -> native-tls).
+[target.'cfg(target_env = "musl")'.dependencies]
+openssl = { version = "0.10", features = ["vendored"] }
+
 [profile.release]
 opt-level = 3
 lto = true
