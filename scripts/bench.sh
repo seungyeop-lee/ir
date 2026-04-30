@@ -15,6 +15,7 @@
 #   fiqa, nfcorpus, scifact, arguana  — English BEIR datasets
 #   miracl-ko                          — Korean MIRACL full corpus (download-miracl-ko.sh)
 #   ko-miracl                          — Korean MIRACL dev split (download-ko-miracl.py)
+#   miracl-zh                          — Chinese MIRACL full corpus (download-miracl-zh.sh)
 #
 # Results cached at logs/results/<dataset>/<git7>.json — reused on re-run.
 # A per-mode score table is always printed from the cached JSON.
@@ -108,6 +109,12 @@ case "$DATASET" in
         DATA_PATH="test-data/ko-miracl"
         PREPROCESSOR="ko"
         DOWNLOAD_CMD="uv run scripts/download-ko-miracl.py"
+        EMBED_FLAG="--embed"
+        ;;
+    miracl-zh)
+        DATA_PATH="test-data/miracl-zh"
+        PREPROCESSOR="zh"
+        DOWNLOAD_CMD="scripts/download-miracl-zh.sh"
         EMBED_FLAG="--embed"
         ;;
     *)

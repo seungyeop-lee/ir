@@ -17,6 +17,16 @@ bench_env_init() {
     if [[ -f "$source_config" && ! -f "$local_config" ]]; then
         cp "$source_config" "$local_config"
     fi
+
+    # Replace a real directory (stale copied state) with a symlink so $IR_DIR/preprocessors/...
+    # resolves when IR_CONFIG_DIR points to the isolated state dir instead of ~/.config/ir.
+    local source_preprocessors="$source_xdg/ir/preprocessors"
+    local local_preprocessors="$IR_CONFIG_DIR/preprocessors"
+    if [[ -d "$source_preprocessors" ]] && \
+       ! [[ -L "$local_preprocessors" && "$(readlink "$local_preprocessors")" == "$source_preprocessors" ]]; then
+        rm -rf "$local_preprocessors"
+        ln -s "$source_preprocessors" "$local_preprocessors"
+    fi
 }
 
 bench_guard_enabled() {
