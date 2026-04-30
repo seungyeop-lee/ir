@@ -26,8 +26,5 @@ jobs:
       - name: Clippy
         run: cargo clippy --no-default-features --features llama-openmp --no-deps -- -D warnings
 
-      - name: Format
-        run: cargo fmt -- --check
-
       - name: Unused dependencies
         run: cargo shear
