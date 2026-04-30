@@ -1,12 +1,18 @@
-## [Unreleased]
+## [0.14.0] - 2026-04-30
+
+### Fixes
+
+- **Portable SQLite extension ABI** (`src/db/mod.rs`): sqlite-vec auto-extension init function now uses `*mut *mut c_char` (from `std::os::raw`) instead of `*mut *mut i8` for the error message pointer, matching the stable C ABI. Previous code was technically UB on targets where `c_char` is unsigned.
+- **Preprocessor arg expansion** (`src/preprocess.rs`): `PreprocessHandle::spawn` now applies `expand_path` to all command args, not just the binary path. Fixes `$IR_DIR/preprocessors/jieba` being passed literally to lindera — caused zh (and any post-v0.12.0 fresh ko/ja install) indexing to fail with "dictionary path does not exist".
 
 ### Dev / Benchmark Tooling
+
+- **GitHub Actions CI/Release**: added `.github/workflows/ci.yml` (build + test on push/PR) and `.github/workflows/release.yml` (cross-platform binary build, GitHub release, Homebrew tap update on tag push). `TAP_TOKEN` secret required in repo settings for the Homebrew step.
 
 - **Chinese (zh) benchmark infrastructure**: `scripts/download-miracl-zh.sh` downloads the MIRACL-ZH corpus (~132K passages) from HuggingFace; `scripts/bench.sh miracl-zh` runs the benchmark; `scripts/generate-fixtures.sh` generates `test-data/fixtures/miracl-zh-mini/` (2000-doc sample, seed=42); placeholder `expected.json` with `_uncalibrated` flags added. Calibrate with `scripts/calibrate-fixtures.sh miracl-zh-mini` after download.
 - **Chinese synthetic fixture** (`test-data/fixtures/synthetic-zh/`): 20-doc Chinese corpus with BM25 fingerprint terms (玄武/朱雀/青龙/白虎/勾陈), semantic synonym pairs, distractors, and edge cases including punctuation-only lines. Exercises zh preprocessor pipeline end-to-end via `scripts/preship.sh --fixture synthetic-zh`. Calibrate with `scripts/calibrate-fixtures.sh synthetic-zh` after `ir preprocessor install zh`.
 - **zh integration test** (`src/preprocess.rs`): `#[ignore]` test `zh_preprocessor_tokenizes_chinese` verifies jieba segmentation, ASCII pass-through, and punctuation handling. Run with `cargo test -- --ignored zh_preprocessor` after `ir preprocessor install zh`.
 - **README.zh.md**: Full Simplified Chinese translation of README.md.
-- **Preprocessor arg expansion fix** (`src/preprocess.rs`): `PreprocessHandle::spawn` now applies `expand_path` to all command args, not just the binary path. Fixes `$IR_DIR/preprocessors/jieba` being passed literally to lindera — previously caused zh indexing to fail silently with "dictionary path does not exist".
 - **Benchmark isolation preprocessor symlink** (`scripts/bench-env.sh`): `bench_env_init` now symlinks the live `preprocessors/` directory into each isolated bench state dir. Previously, bench scripts using `$IR_DIR/preprocessors/...` references would fail in isolated state; only old absolute-path configs worked by accident.
 
 ## [0.13.0] - 2026-04-23
