@@ -268,15 +268,19 @@ mod tests {
     // Writes a Python filter script that drops '.' lines and flushes after each output.
     // grep/sed/tr/sort all block-buffer in pipe mode on macOS — use Python with flush=True
     // (same reason cat is used for other protocol tests — see CLAUDE.md).
+    // Uses PID + atomic seq so concurrent test binaries (lib + main) never share a filename.
     #[cfg(unix)]
-    fn write_dot_filter_script(suffix: &str) -> String {
+    fn write_dot_filter_script() -> String {
         use std::os::unix::fs::PermissionsExt;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static SEQ: AtomicUsize = AtomicUsize::new(0);
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
         const SCRIPT: &[u8] = b"#!/usr/bin/env python3\nimport sys\nfor line in sys.stdin:\n    s=line.rstrip('\\n')\n    if s != '.':\n        print(s, flush=True)\n";
         let path = format!(
-            "{}/ir-test-{}-{}.py",
+            "{}/ir-test-dot-filter-{}-{}.py",
             std::env::temp_dir().display(),
-            suffix,
-            std::process::id()
+            std::process::id(),
+            n
         );
         std::fs::write(&path, SCRIPT).unwrap();
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
@@ -288,7 +292,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn sentinel_handles_dropped_line() {
-        let path = write_dot_filter_script("filter");
+        let path = write_dot_filter_script();
         let mut handle = PreprocessHandle::spawn(&path).unwrap();
         // Punctuation-only line → filter drops it → sentinel must unblock read_line()
         let out = handle.process_line(".").unwrap();
@@ -304,7 +308,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn sentinel_handles_mixed_document() {
-        let path = write_dot_filter_script("filter2");
+        let path = write_dot_filter_script();
         let mut handle = PreprocessHandle::spawn(&path).unwrap();
         let text = "first line\n.\nsecond line\n.\nthird line";
         let out = handle.process_text(text).unwrap();
