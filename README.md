@@ -1,6 +1,6 @@
 # ir
 
-[ENG](README.md) | [한국어](README.ko.md)
+[ENG](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
 Local semantic search engine for markdown knowledge bases. Rust port of [qmd](https://github.com/tobi/qmd) with three key differences:
 
@@ -376,12 +376,26 @@ Use this to override BM25/fused strong-signal thresholds for a specific collecti
 
 Overrides apply only when all searched collections agree on the same value. Mixed searches with conflicting overrides fall back to the global default thresholds.
 
-**Other languages:**
+**Japanese:**
 
 ```bash
 ir preprocessor install ja    # Japanese (Lindera + ipadic)
-ir preprocessor install zh    # Chinese (Lindera + jieba)
 ```
+
+**Chinese (lindera + jieba, Mode::Decompose):**
+
+```bash
+ir preprocessor install zh          # downloads lindera CLI + jieba dict, registers as "zh"
+ir collection add notes ~/notes     # add collection
+ir preprocessor bind zh notes       # wire "zh" to collection and re-index
+ir search "机器学习" -c notes
+```
+
+`ir preprocessor install zh` downloads the official lindera CLI binary and jieba segmentation dictionary from lindera's GitHub releases (same binary as `ko`/`ja`, different dict). Supported platforms: **macOS** (arm64, x86\_64) and **Linux** (x86\_64, aarch64).
+
+Unlike `ko`, binding `zh` does **not** write a routing override — the global strong-signal thresholds apply. Add a collection-level `routing:` block if you observe too many or too few tier-1 escalations on your corpus.
+
+**Limitation:** No stopword filtering. Function words (的、了、在、是、…) are indexed as terms. BM25 precision is lower on function-word-heavy queries; hybrid+rerank compensates.
 
 **Manage:**
 

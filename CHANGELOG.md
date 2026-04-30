@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Dev / Benchmark Tooling
+
+- **Chinese (zh) benchmark infrastructure**: `scripts/download-miracl-zh.sh` downloads the MIRACL-ZH corpus (~132K passages) from HuggingFace; `scripts/bench.sh miracl-zh` runs the benchmark; `scripts/generate-fixtures.sh` generates `test-data/fixtures/miracl-zh-mini/` (2000-doc sample, seed=42); placeholder `expected.json` with `_uncalibrated` flags added. Calibrate with `scripts/calibrate-fixtures.sh miracl-zh-mini` after download.
+- **Chinese synthetic fixture** (`test-data/fixtures/synthetic-zh/`): 20-doc Chinese corpus with BM25 fingerprint terms (玄武/朱雀/青龙/白虎/勾陈), semantic synonym pairs, distractors, and edge cases including punctuation-only lines. Exercises zh preprocessor pipeline end-to-end via `scripts/preship.sh --fixture synthetic-zh`. Calibrate with `scripts/calibrate-fixtures.sh synthetic-zh` after `ir preprocessor install zh`.
+- **zh integration test** (`src/preprocess.rs`): `#[ignore]` test `zh_preprocessor_tokenizes_chinese` verifies jieba segmentation, ASCII pass-through, and punctuation handling. Run with `cargo test -- --ignored zh_preprocessor` after `ir preprocessor install zh`.
+- **README.zh.md**: Full Simplified Chinese translation of README.md.
+- **Preprocessor arg expansion fix** (`src/preprocess.rs`): `PreprocessHandle::spawn` now applies `expand_path` to all command args, not just the binary path. Fixes `$IR_DIR/preprocessors/jieba` being passed literally to lindera — previously caused zh indexing to fail silently with "dictionary path does not exist".
+- **Benchmark isolation preprocessor symlink** (`scripts/bench-env.sh`): `bench_env_init` now symlinks the live `preprocessors/` directory into each isolated bench state dir. Previously, bench scripts using `$IR_DIR/preprocessors/...` references would fail in isolated state; only old absolute-path configs worked by accident.
+
 ## [0.13.0] - 2026-04-23
 
 ### Breaking
