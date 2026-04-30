@@ -1,6 +1,6 @@
 # ir
 
-[ENG](README.md) | [한국어](README.ko.md)
+[ENG](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
 마크다운 지식베이스를 위한 로컬 시맨틱 검색 엔진. [qmd](https://github.com/tobi/qmd)의 Rust 포트, 세 가지 핵심 차이점:
 
@@ -420,12 +420,26 @@ collections:
 
 override는 검색에 포함된 모든 컬렉션이 같은 값을 명시했을 때만 적용됩니다. 서로 다른 override가 섞인 multi-collection 검색은 전역 기본 threshold로 되돌아갑니다.
 
-**다른 언어:**
+**일본어:**
 
 ```bash
-ir preprocessor install ja    # 일본어 (lindera)
-ir preprocessor install zh    # 중국어 (Lindera + jieba)
+ir preprocessor install ja    # 일본어 (lindera + ipadic)
 ```
+
+**중국어 (lindera + jieba, Mode::Decompose):**
+
+```bash
+ir preprocessor install zh          # lindera CLI + jieba 사전 다운로드, "zh" 등록
+ir collection add notes ~/notes     # 컬렉션 추가
+ir preprocessor bind zh notes       # "zh"를 컬렉션에 연결하고 재인덱싱
+ir search "机器学习" -c notes
+```
+
+`ir preprocessor install zh`는 lindera 공식 GitHub 릴리즈에서 lindera CLI 바이너리와 jieba 분절 사전을 다운로드합니다 (`ko`/`ja`와 동일 바이너리, 다른 사전). 지원 플랫폼: **macOS** (arm64, x86\_64) 및 **Linux** (x86\_64, aarch64).
+
+`ko`와 달리 `zh` 바인딩 시 routing override가 자동 적용되지 않습니다. 전역 strong-signal threshold가 적용됩니다. 컬렉션별 `routing:` 블록을 직접 추가하세요.
+
+**제한사항:** 불용어 필터링 없음. 기능어(的、了、在、是 등)가 인덱스 항목으로 남습니다. BM25 정밀도가 기능어 중심 쿼리에서 낮을 수 있으며, hybrid+rerank로 보완됩니다.
 
 **관리:**
 

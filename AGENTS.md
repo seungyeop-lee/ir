@@ -123,7 +123,7 @@ Prerequisites: `TAP_TOKEN` secret set in GitHub repo settings (used by CI to upd
 
 ## good-to-go
 
-- README.md + README.ko.md must both be updated for any user-facing feature (CLI flags, env vars, output formats)
+- README.md + README.ko.md + README.zh.md must all be updated for any user-facing feature (CLI flags, env vars, output formats)
 - CHANGELOG.md Unreleased section must cover: new CLI flags, env var renames/deprecations, breaking behavior changes
 - Enum variants in types.rs must be wired to a CLI flag or MCP field — check with `rg 'Variant::' src/ | grep -v test`
 - Preprocessor protocol tests must use `cat` only — `rev` uses full stdio buffering in pipe mode on macOS and deadlocks. `tr`, `sed`, `sort` also buffer.
@@ -140,3 +140,9 @@ Prerequisites: `TAP_TOKEN` secret set in GitHub repo settings (used by CI to upd
 - All path env vars (IR_CONFIG_DIR, IR_MODEL_DIRS, IR_*_MODEL) support ~ and $VAR expansion via expand_path() in src/config/mod.rs — tests for this must use ENV_LOCK mutex to prevent parallel env var interference
 - scripts/preship.sh must pass (exit 0 or 2) before any signal-sweep run or release; run `--bm25-only` for fast CI gate, full for pre-release
 - Default pool size for MIRACL-Ko signal sweeps: 50000 docs. Minimum stable floor from the variance study: 10000 docs. Do not use pool sizes <= 503 for between-seed variance decisions; those pools collapse to the mandatory qrel-linked docs and are deterministic.
+- zh fixture (test-data/fixtures/synthetic-zh) must be calibrated before shipping zh-related changes; run `ir preprocessor install zh && scripts/calibrate-fixtures.sh synthetic-zh` then commit updated expected.json
+- scripts/preship.sh --fixture synthetic-zh must pass (exit 0 or 2) before any zh-related release
+- zh sentinel probe before any zh preprocessor command change: `printf '。\n你好世界\ntest\n' | <zh-cmd> 2>/dev/null | wc -l` — must equal 3
+- PreprocessHandle::spawn expands all args via expand_path (not just the binary); preprocessor commands may use $IR_DIR or ~ in any arg position — IR_DIR is set by ir at startup (main.rs:54), tests that spawn preprocessors directly must set IR_DIR manually
+- speed floors in expected.json must be calibrated from a full run (with embed) when the fixture includes vector/hybrid modes; BM25-only calibration sets unrealistically high floors that fail on embed runs — reset min_index_docs_per_s to 5 and max_query_p50_ms to 2000 until full GPU calibration runs
+- bench_env_init preprocessors symlink: state dirs get a symlink to the live source preprocessors on each init, replacing stale real directories; after ir preprocessor install, bench scopes that ran before the install have stale config.yml — delete scope's config.yml to force re-copy on next run

@@ -1,0 +1,3 @@
+中英文混排测试
+
+系统采用RESTful API设计，通过HTTP协议传输JSON格式数据。客户端发送GET请求获取资源，POST请求创建新记录，PUT和DELETE分别用于更新和删除操作。

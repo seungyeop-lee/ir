@@ -1,0 +1,27 @@
+{
+  "calibrated": false,
+  "preprocessor": "zh",
+  "stability": {
+    "max_wall_clock_s": 120,
+    "must_exit_zero": true,
+    "no_stall": true
+  },
+  "speed": {
+    "min_index_docs_per_s": 5,
+    "max_query_p50_ms": 2000
+  },
+  "performance": {
+    "bm25": {
+      "ndcg_10": 0.3,
+      "recall_10": 0.4,
+      "tolerance": 0.05,
+      "_uncalibrated": true
+    },
+    "hybrid": {
+      "ndcg_10": 0.4,
+      "recall_10": 0.5,
+      "tolerance": 0.05,
+      "_uncalibrated": true
+    }
+  }
+}
