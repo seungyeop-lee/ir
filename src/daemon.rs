@@ -3,7 +3,8 @@
 //
 // Default model stack: EmbeddingGemma-300M + qmd-expander-1.7B + Qwen3-Reranker-0.6B
 // (the trio, nDCG@10=0.4032 on NFCorpus — best measured configuration).
-// Metal is used by default on macOS (IR_GPU_LAYERS=99).
+// GPU acceleration: Metal on macOS, CUDA/ROCm/Vulkan on Linux when compiled with the matching
+// feature flag. Defaults to 99 GPU layers when any GPU backend is compiled in, 0 otherwise.
 //
 // Protocol: newline-delimited JSON over Unix socket.
 //   request:  {"query":"...","collections":["name"],"limit":10,"min_score":0.2,"mode":"hybrid"}
@@ -336,11 +337,8 @@ pub fn start_server(timeout_secs: u64) -> Result<()> {
     crate::llm::download::prepare_model_envs()
         .map_err(|e| Error::Other(format!("model env check: {e}")))?;
 
-    let gpu_on = crate::llm::gpu_layers() > 0;
-    eprintln!(
-        "loading models (Metal: {})...",
-        if gpu_on { "on" } else { "off" }
-    );
+    let accel = crate::llm::gpu_backend_label();
+    eprintln!("loading models ({accel})...");
 
     // Tier-1: load embedder only.
     let embedder = crate::llm::embedding::Embedder::load_default()

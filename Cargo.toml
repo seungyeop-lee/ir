@@ -10,6 +10,9 @@ repository = "https://github.com/vlwkaos/ir"
 default = ["llama-metal", "llama-openmp"]
 llama-metal = ["llama-cpp-2/metal"]
 llama-openmp = ["llama-cpp-2/openmp"]
+llama-cuda = ["llama-cpp-2/cuda"]
+llama-rocm = ["llama-cpp-2/rocm"]
+llama-vulkan = ["llama-cpp-2/vulkan"]
 
 [[bin]]
 name = "ir"

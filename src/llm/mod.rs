@@ -107,22 +107,64 @@ pub mod hf_repos {
 }
 
 /// Number of layers to offload to GPU.
-/// Override with `IR_GPU_LAYERS=N`; defaults to 99 (all) on macOS.
+/// Override with `IR_GPU_LAYERS=N`; defaults to 99 when any GPU backend is compiled in
+/// (metal, cuda, rocm, vulkan), 0 for no-GPU-feature builds.
 pub fn gpu_layers() -> u32 {
     std::env::var("IR_GPU_LAYERS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(if cfg!(target_os = "macos") { 99 } else { 0 })
+        .unwrap_or_else(|| {
+            if cfg!(any(
+                feature = "llama-metal",
+                feature = "llama-cuda",
+                feature = "llama-rocm",
+                feature = "llama-vulkan",
+            )) {
+                99
+            } else {
+                0
+            }
+        })
+}
+
+/// Returns the label of the active GPU backend ("Metal", "CUDA", "ROCm", "Vulkan"),
+/// or "CPU" when GPU layers are disabled or no GPU device is present.
+///
+/// Uses runtime device enumeration — safe to call before `init_backend()`.
+pub fn gpu_backend_label() -> &'static str {
+    if gpu_layers() == 0 {
+        return "CPU";
+    }
+    for d in list_llama_ggml_backend_devices() {
+        if matches!(
+            d.device_type,
+            LlamaBackendDeviceType::Gpu
+                | LlamaBackendDeviceType::IntegratedGpu
+                | LlamaBackendDeviceType::Accelerator
+        ) {
+            return match d.backend.as_str() {
+                "Metal" => "Metal",
+                "CUDA" => "CUDA",
+                "HIP" => "ROCm",
+                "Vulkan" => "Vulkan",
+                _ => "GPU",
+            };
+        }
+    }
+    "CPU"
+}
+
+fn cpu_device_indices() -> Vec<usize> {
+    list_llama_ggml_backend_devices()
+        .into_iter()
+        .filter(|d| d.device_type == LlamaBackendDeviceType::Cpu)
+        .map(|d| d.index)
+        .collect()
 }
 
 /// CPU-pinned model params: no GPU layers, device list restricted to CPU backends.
 pub fn model_load_cpu_params() -> LlamaModelParams {
-    let cpu_devices: Vec<usize> = list_llama_ggml_backend_devices()
-        .into_iter()
-        .filter(|d| d.device_type == LlamaBackendDeviceType::Cpu)
-        .map(|d| d.index)
-        .collect();
-
+    let cpu_devices = cpu_device_indices();
     let base = LlamaModelParams::default().with_n_gpu_layers(0);
     if cpu_devices.is_empty() {
         return base;
@@ -144,12 +186,7 @@ pub fn model_load_params() -> LlamaModelParams {
         return base;
     }
 
-    let cpu_devices: Vec<usize> = list_llama_ggml_backend_devices()
-        .into_iter()
-        .filter(|d| d.device_type == LlamaBackendDeviceType::Cpu)
-        .map(|d| d.index)
-        .collect();
-
+    let cpu_devices = cpu_device_indices();
     if cpu_devices.is_empty() {
         return base;
     }

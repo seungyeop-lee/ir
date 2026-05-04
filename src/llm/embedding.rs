@@ -91,7 +91,7 @@ impl Embedder {
         let gpu_layers = crate::llm::gpu_layers();
         let embedder = Self::load_with_gpu_layers(&path, gpu_layers)?;
 
-        // ! Probe context creation: Metal may be unavailable (e.g. sandbox). If so, reload on CPU.
+        // ! Probe context creation: GPU backend may be unavailable (e.g. sandbox). If so, reload on CPU.
         if gpu_layers > 0 {
             let n_threads = std::thread::available_parallelism()
                 .map(|n| n.get() as i32)
