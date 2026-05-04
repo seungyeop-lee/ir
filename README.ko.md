@@ -23,7 +23,7 @@
 - **컬렉션별 SQLite** — 독립 WAL 저널, 격리 백업, 컬렉션 간 경합 없음
 - **내용 주소 저장** — SHA-256으로 동일 파일 중복 제거
 - **FTS5 인젝션 안전** — 모든 사용자 입력 FTS5 쿼리 생성 전 이스케이프
-- **Metal GPU** — macOS에서 기본적으로 전 레이어 Metal 오프로드; `IR_GPU_LAYERS=N`으로 조정
+- **GPU 가속** — macOS에서는 Metal 기본 사용, Linux에서는 CUDA/ROCm/Vulkan 선택 가능 (feature 플래그); `IR_GPU_LAYERS=N`으로 조정
 - **자동 다운로드** — 첫 사용 시 HuggingFace Hub에서 모델 자동 다운로드
 
 </details>
@@ -43,7 +43,7 @@ brew install ir
 cargo install --path .
 ```
 
-Rust 1.80 이상 필요. macOS에서 llama.cpp가 Metal과 자동 링크됩니다.
+Rust 1.80 이상 필요. macOS에서 llama.cpp가 Metal과 자동 링크됩니다. Linux에서는 `--features llama-cuda`, `llama-rocm`, `llama-vulkan` 중 하나를 지정해 GPU를 활성화할 수 있습니다.
 
 ## 빠른 시작
 

@@ -30,8 +30,8 @@ Results cached at `logs/results/{dataset}/{git7}.json` (gitignored).
 | `IR_EXPANDER_MODEL` | auto-detect | Path to expander GGUF (qmd-1.7B) |
 | `IR_RERANKER_MODEL` | auto-detect | Path to reranker GGUF (Qwen3-0.6B) |
 | `IR_COMBINED_MODEL` | unset | Unified Qwen3.5 GGUF — replaces both expander + reranker (`IR_QWEN_MODEL` deprecated alias) |
-| `IR_GPU_LAYERS` | `99` on macOS | Number of layers offloaded to GPU |
-| `IR_FORCE_CPU_BACKEND` | unset | Set to `1` to disable Metal |
+| `IR_GPU_LAYERS` | `99` when GPU backend compiled in, else `0` | Number of layers offloaded to GPU |
+| `IR_FORCE_CPU_BACKEND` | unset | Set to `1` to force CPU (disables Metal/CUDA/ROCm/Vulkan) |
 | `IR_LLAMA_LOGS` | unset | Set to `1` to enable llama.cpp verbose logging |
 | `IR_MODEL_DIRS` | `~/local-models/` | Colon-separated extra model search dirs |
 | `IR_CONFIG_DIR` | `~/.config/ir` | Override config/data dir. Supports `~` and `$VAR` expansion. |

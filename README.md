@@ -23,7 +23,7 @@ Search quality benchmarked on 4 BEIR datasets; reranking adds up to +14.5% nDCG@
 - **Per-collection SQLite** — independent WAL journals, isolated backup, zero cross-collection contention
 - **Content-addressed storage** — identical files deduplicated by SHA-256 within a collection
 - **FTS5 injection-safe** — all user input escaped before FTS5 query construction
-- **Metal GPU** — all layers offloaded to Metal on macOS by default; `IR_GPU_LAYERS=N` to override
+- **GPU acceleration** — Metal on macOS (default), CUDA/ROCm/Vulkan on Linux (opt-in via feature flags); `IR_GPU_LAYERS=N` to override
 - **Auto-download** — models fetched from HuggingFace Hub on first use; `HF_HUB_OFFLINE=1` to disable
 
 </details>
@@ -42,7 +42,7 @@ brew install vlwkaos/tap/ir
 cargo install --path .
 ```
 
-Requires Rust 1.80+. On macOS, links llama.cpp with Metal automatically.
+Requires Rust 1.80+. On macOS, links llama.cpp with Metal automatically. On Linux, pass `--features llama-cuda`, `llama-rocm`, or `llama-vulkan` to enable GPU acceleration.
 
 ## Quick start
 

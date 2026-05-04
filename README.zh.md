@@ -23,7 +23,7 @@
 - **按集合独立 SQLite** — 独立 WAL 日志，隔离备份，集合间零竞争
 - **内容寻址存储** — 相同文件在集合内通过 SHA-256 去重
 - **FTS5 注入安全** — 所有用户输入在构造 FTS5 查询前经过转义处理
-- **Metal GPU** — macOS 上默认将全部层卸载至 Metal；通过 `IR_GPU_LAYERS=N` 调整
+- **GPU 加速** — macOS 上默认使用 Metal，Linux 上可通过 feature 标志启用 CUDA/ROCm/Vulkan；通过 `IR_GPU_LAYERS=N` 调整
 - **自动下载** — 首次使用时从 HuggingFace Hub 自动获取模型；`HF_HUB_OFFLINE=1` 可禁用
 
 </details>
@@ -42,7 +42,7 @@ brew install vlwkaos/tap/ir
 cargo install --path .
 ```
 
-需要 Rust 1.80 及以上版本。macOS 上会自动与 Metal 链接 llama.cpp。
+需要 Rust 1.80 及以上版本。macOS 上会自动与 Metal 链接 llama.cpp。Linux 上可通过 `--features llama-cuda`、`llama-rocm` 或 `llama-vulkan` 启用 GPU 加速。
 
 ## 快速开始
 
