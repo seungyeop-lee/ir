@@ -330,10 +330,14 @@ ir update notes              # 输出："0 added, 0 updated, 1 deactivated"
 **HTTP 模式**（用于远程访问或多客户端场景）：
 
 ```bash
-ir mcp --http 3620    # 监听所有接口，端口 3620
+ir mcp --http 3620                              # 监听所有接口，端口 3620
+ir mcp --http 3620 --cors '*'                   # 允许任意浏览器源（通配符）
+ir mcp --http 3620 --cors 'https://app.example.com'  # 仅允许指定源
 ```
 
 将客户端配置指向 `http://<host>:3620/mcp`。首次调用搜索工具时守护进程自动启动。
+
+`--cors` 设置 `Access-Control-Allow-Origin`，允许浏览器客户端（Web 应用、Claude.ai 网页端）连接。`--cors '*'` 同时禁用 rmcp 的 DNS 重绑定主机检查，仅在可信网络中使用。不指定 `--cors` 时不发送 CORS 头（不影响 curl/CLI 客户端）。
 
 > **安全说明：** HTTP 模式无身份验证，绑定所有接口。仅在可信网络中暴露。`update` 工具可触发重新索引，应视为本地写入访问服务。
 

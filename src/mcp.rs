@@ -430,10 +430,10 @@ fn run_update(collection: Option<&str>, force: bool) -> IrResult<Vec<UpdateResul
 
 // ── entry point ───────────────────────────────────────────────────────────────
 
-pub async fn run(http: Option<u16>) -> IrResult<()> {
+pub async fn run(http: Option<u16>, cors: Option<String>) -> IrResult<()> {
     match http {
         None => run_stdio().await,
-        Some(port) => run_http(port).await,
+        Some(port) => run_http(port, cors).await,
     }
 }
 
@@ -449,15 +449,49 @@ async fn run_stdio() -> IrResult<()> {
     Ok(())
 }
 
-async fn run_http(port: u16) -> IrResult<()> {
+fn build_cors_layer(origin: &str) -> IrResult<tower_http::cors::CorsLayer> {
+    use axum::http::{HeaderValue, Method, header};
+    use tower_http::cors::CorsLayer;
+
+    let allow_origin = if origin == "*" {
+        tower_http::cors::AllowOrigin::any()
+    } else {
+        let val = origin
+            .parse::<HeaderValue>()
+            .map_err(|_| crate::error::Error::Other(format!("invalid --cors value: {origin:?}")))?;
+        tower_http::cors::AllowOrigin::exact(val)
+    };
+    Ok(CorsLayer::new()
+        .allow_origin(allow_origin)
+        .allow_methods([Method::GET, Method::POST, Method::DELETE])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            header::HeaderName::from_static("mcp-session-id"),
+            header::HeaderName::from_static("mcp-protocol-version"),
+            header::HeaderName::from_static("last-event-id"),
+        ])
+        .expose_headers([header::HeaderName::from_static("mcp-session-id")]))
+}
+
+async fn run_http(port: u16, cors: Option<String>) -> IrResult<()> {
     use rmcp::transport::streamable_http_server::{
         StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     };
 
+    let wildcard_cors = cors.as_deref() == Some("*");
+    // Wildcard CORS makes the endpoint fully public; rmcp's host check adds no protection.
+    let mut config = StreamableHttpServerConfig::default();
+    if wildcard_cors {
+        config = config.disable_allowed_hosts();
+    }
+
+    let cors_layer = cors.as_deref().map(build_cors_layer).transpose()?;
+
     let service = StreamableHttpService::new(
         || Ok(IrMcpServer::new()),
         LocalSessionManager::default().into(),
-        StreamableHttpServerConfig::default(),
+        config,
     );
 
     let addr = format!("0.0.0.0:{port}");
@@ -467,10 +501,40 @@ async fn run_http(port: u16) -> IrResult<()> {
     eprintln!("ir MCP server listening on http://{addr}/mcp");
 
     let router = axum::Router::new().nest_service("/mcp", service);
+    let router = match cors_layer {
+        Some(layer) => router.layer(layer),
+        None => router,
+    };
     axum::serve(listener, router)
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
         })
         .await
         .map_err(|e| crate::error::Error::Other(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cors_layer_wildcard() {
+        assert!(build_cors_layer("*").is_ok());
+    }
+
+    #[test]
+    fn cors_layer_exact_origin() {
+        assert!(build_cors_layer("https://example.com").is_ok());
+    }
+
+    #[test]
+    fn cors_layer_rejects_invalid_origin() {
+        // Control characters are not valid header values.
+        assert!(build_cors_layer("bad\x00value").is_err());
+    }
+
+    #[test]
+    fn cors_layer_rejects_newline_injection() {
+        assert!(build_cors_layer("https://ok.com\r\nX-Injected: evil").is_err());
+    }
 }

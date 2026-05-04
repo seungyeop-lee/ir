@@ -366,10 +366,14 @@ ir update notes              # 출력: "0 added, 0 updated, 1 deactivated"
 **HTTP 모드** (원격 접속 또는 멀티 클라이언트):
 
 ```bash
-ir mcp --http 3620    # 전체 인터페이스, 포트 3620
+ir mcp --http 3620                              # 전체 인터페이스, 포트 3620
+ir mcp --http 3620 --cors '*'                   # 모든 브라우저 출처 허용 (와일드카드)
+ir mcp --http 3620 --cors 'https://app.example.com'  # 특정 출처만 허용
 ```
 
 클라이언트를 `http://<host>:3620/mcp`로 설정합니다. 첫 검색 도구 호출 시 데몬이 자동 시작됩니다.
+
+`--cors`는 브라우저 클라이언트(웹 앱, Claude.ai 웹)가 연결할 수 있도록 `Access-Control-Allow-Origin`을 설정합니다. `--cors '*'`는 rmcp의 DNS 리바인딩 호스트 검사도 비활성화하므로 신뢰할 수 있는 네트워크에서만 사용하세요. `--cors` 없이 실행 시 CORS 헤더가 설정되지 않습니다(curl/CLI 클라이언트에는 영향 없음).
 
 > **보안 주의:** HTTP 모드는 인증 없이 전체 인터페이스에 바인딩됩니다. 신뢰할 수 있는 네트워크에서만 노출하세요. `update` 도구는 재인덱싱을 유발할 수 있으므로 로컬 쓰기 권한 서비스로 취급하세요.
 

@@ -109,17 +109,18 @@ CI (GitHub Actions) handles build, GitHub release, and Homebrew tap on tag push.
 sed -i '' 's/^version = ".*"/version = "'"$VERSION"'"/' Cargo.toml
 cargo check --quiet  # updates Cargo.lock
 
+# Finalize CHANGELOG (CI awk extracts release notes by version heading)
+sed -i '' "s/^## \[Unreleased\]/## [$VERSION] - $(date +%Y-%m-%d)/" CHANGELOG.md
+
 # Commit + tag + push (triggers CI release workflow)
 git add Cargo.toml Cargo.lock CHANGELOG.md
 git commit -m "v$VERSION"
 git tag -a "v$VERSION" -m "v$VERSION"
 git push origin main --tags
-
-# Publish to crates.io
-cargo publish   # publishes as ir-search
 ```
 
-Prerequisites: `TAP_TOKEN` secret set in GitHub repo settings (used by CI to update Homebrew tap).
+Prerequisites: `TAP_TOKEN` and `CRATES_IO_TOKEN` secrets set in GitHub repo settings.
+CI handles: build, GitHub release, Homebrew tap update, and crates.io publish.
 
 ## good-to-go
 

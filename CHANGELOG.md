@@ -1,3 +1,13 @@
+## [Unreleased]
+
+### Features
+
+- **`--cors` flag for `ir mcp --http`** (`src/mcp.rs`, `src/cli/mod.rs`): adds `Access-Control-Allow-Origin` support for browser-hosted MCP clients. `--cors '*'` allows any origin and disables rmcp's DNS-rebinding host check; `--cors 'https://...'` sets an exact-match origin. Omitting `--cors` leaves existing behavior unchanged. Exposes `mcp-session-id` header and allows `last-event-id` on SSE reconnect.
+
+### Chores
+
+- **hf-hub upgraded to 0.5.0** (`Cargo.toml`): switched from `hf-hub 0.3` (native-tls / OpenSSL) to `hf-hub 0.5.0` with `default-features = false, features = ["ureq"]`. Removes OpenSSL and native-tls from the dependency tree; TLS handled by ureq 3's rustls default. The sync `api::sync::ApiBuilder` path is unchanged.
+
 ## [0.14.0] - 2026-04-30
 
 ### Fixes

@@ -120,12 +120,12 @@ fn run() -> Result<()> {
             DaemonCmd::Status => daemon::status(),
         },
         Command::Preprocessor { cmd } => handle_preprocessor(cmd),
-        Command::Mcp { http } => {
+        Command::Mcp { http, cors } => {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .map_err(|e| error::Error::Other(e.to_string()))?;
-            rt.block_on(mcp::run(http))
+            rt.block_on(mcp::run(http, cors))
         }
     }
 }

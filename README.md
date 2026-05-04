@@ -322,10 +322,14 @@ The `filter` array accepts structured clauses: `{"field": "modified_at", "op": "
 **HTTP mode** (for remote access or multi-client setups):
 
 ```bash
-ir mcp --http 3620    # serve on all interfaces, port 3620
+ir mcp --http 3620                              # serve on all interfaces, port 3620
+ir mcp --http 3620 --cors '*'                   # allow any browser origin (wildcard)
+ir mcp --http 3620 --cors 'https://app.example.com'  # allow specific origin only
 ```
 
 Configure clients to point at `http://<host>:3620/mcp`. The daemon starts automatically on first search tool call.
+
+`--cors` sets `Access-Control-Allow-Origin` so browser-hosted clients (web apps, Claude.ai web) can connect. `--cors '*'` also disables rmcp's DNS-rebinding host check; use only on trusted networks. Omitting `--cors` emits no CORS headers (curl/CLI clients unaffected).
 
 > **Security note:** HTTP mode is unauthenticated and binds to all interfaces. Only expose it on trusted networks. The `update` tool can trigger re-indexing, so treat it like any other local write-access service.
 

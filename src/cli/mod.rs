@@ -142,6 +142,11 @@ pub enum Command {
         /// Serve over HTTP on the given port instead of stdio (e.g. --http 3620)
         #[arg(long)]
         http: Option<u16>,
+        /// Set Access-Control-Allow-Origin for HTTP mode ('*' or exact origin).
+        /// For non-loopback deployments the server's Host header must also be trusted by rmcp;
+        /// use '*' to disable rmcp's host check alongside wildcard CORS.
+        #[arg(long, requires = "http")]
+        cors: Option<String>,
     },
 }
 
