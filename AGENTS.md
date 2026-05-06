@@ -5,6 +5,12 @@
 Package name on crates.io is `ir-search` (name `ir` was taken).
 Binary name is `ir`. See @Cargo.toml.
 
+## Setup
+
+```bash
+git config core.hooksPath .githooks   # activate pre-commit clippy hook (once per clone)
+```
+
 ## Commands
 
 ```bash
