@@ -113,17 +113,15 @@ pub fn gpu_layers() -> u32 {
     std::env::var("IR_GPU_LAYERS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or_else(|| {
-            if cfg!(any(
-                feature = "llama-metal",
-                feature = "llama-cuda",
-                feature = "llama-rocm",
-                feature = "llama-vulkan",
-            )) {
-                99
-            } else {
-                0
-            }
+        .unwrap_or(if cfg!(any(
+            feature = "llama-metal",
+            feature = "llama-cuda",
+            feature = "llama-rocm",
+            feature = "llama-vulkan",
+        )) {
+            99
+        } else {
+            0
         })
 }
 

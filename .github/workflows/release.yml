@@ -28,9 +28,6 @@ jobs:
       - name: Test
         run: cargo test --no-default-features --features llama-openmp
 
-      - name: Clippy
-        run: cargo clippy --no-default-features --features llama-openmp --no-deps -- -D warnings
-
       - name: Unused dependencies
         run: cargo shear
 

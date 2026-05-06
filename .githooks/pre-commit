@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -e
+cargo clippy --no-default-features --features llama-openmp --all-targets -- -D warnings
