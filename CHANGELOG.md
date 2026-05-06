@@ -1,10 +1,10 @@
-## [Unreleased]
+## [0.15.0] - 2026-05-06
 
 ### Features
 
 - **Linux GPU backends** (`Cargo.toml`, `src/llm/mod.rs`): added `llama-cuda`, `llama-rocm`, and `llama-vulkan` Cargo features. Build with `--features llama-cuda` (NVIDIA), `llama-rocm` (AMD), or `llama-vulkan` (cross-platform) to enable GPU acceleration on Linux. `IR_GPU_LAYERS` now defaults to 99 when any GPU backend feature is compiled in (was macOS-only). Runtime backend is detected via `ggml_backend_dev_*` enumeration and reported in daemon startup log (e.g. `loading models (CUDA)...`).
 
-- **Nix flake** (`flake.nix`): added `flake.nix` with packages for all four platforms. Linux default package uses OpenMP/CPU; named outputs `#cuda`, `#rocm`, `#vulkan` enable the respective GPU backends with correct `buildInputs`. macOS package links Metal/Foundation/Accelerate frameworks automatically.
+- **Nix flake** (`flake.nix`): added `flake.nix` with packages for all four platforms. Linux default package uses OpenMP/CPU; named outputs `#cuda`, `#rocm`, `#vulkan` enable the respective GPU backends with correct `buildInputs`. macOS package links Metal/Foundation/Accelerate frameworks automatically. Thanks to @bglgwyngag for the initial implementation ([#15](https://github.com/vlwkaos/ir/pull/15)).
 
 ## [0.14.1] - 2026-05-04
 
