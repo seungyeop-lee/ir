@@ -48,10 +48,6 @@ pub fn init(conn: &Connection, collection_name: &str, has_preprocessor: bool) ->
         "INSERT OR IGNORE INTO meta (key, value) VALUES ('collection', ?1)",
         [collection_name],
     )?;
-    conn.execute(
-        "INSERT OR REPLACE INTO meta (key, value) VALUES ('has_preprocessor', ?1)",
-        [if has_preprocessor { "1" } else { "0" }],
-    )?;
     Ok(())
 }
 

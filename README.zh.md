@@ -48,8 +48,7 @@ cargo install --path .
 
 ```bash
 ir collection add notes ~/notes   # 注册集合
-ir update notes                   # 扫描文件 → 提取文本 → 构建 FTS5 索引（BM25）
-ir embed notes                    # 文本分块 → 运行嵌入模型 → 存储向量（启用向量和混合检索）
+ir sync notes                     # 同步文本索引和向量嵌入
 ir search "rust 内存安全"          # 搜索（守护进程自动启动）
 ```
 
@@ -65,7 +64,7 @@ ir search "机器学习" -c wiki
 
 不使用预处理器时，"검색엔진"、"機械学習" 等黏着语词形会被当作单个 FTS 令牌处理，无法匹配词素级查询。中文同理——"机器学习"若不分词，则无法匹配"机器"或"学习"。
 
-`ir update` 速度快（无需模型，纯文本处理）。`ir embed` 首次运行较慢（逐块模型推理），后续仅对变更内容重新嵌入。BM25 检索仅需 `update`；向量和混合检索需要 `embed`。
+`ir sync` 是默认维护命令。它先更新文本索引，再仅嵌入缺少向量的内容哈希。集合未变化时不会加载嵌入模型。仅需快速、无模型的 BM25 索引时可使用 `ir update`。用于向量修复的 `ir embed` 也会先增量同步文本索引。
 
 <details>
 <summary><strong>模型</strong></summary>
@@ -74,7 +73,7 @@ ir search "机器学习" -c wiki
 
 | 模型 | HF 仓库 | 用途 |
 |---|---|---|
-| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir embed`、向量检索、混合检索 |
+| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir sync`、`ir embed`、向量检索、混合检索 |
 | [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF) | `unsloth/Qwen3.5-0.8B-GGUF` | 统一扩展+重排序（可选） |
 | [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) | `unsloth/Qwen3.5-2B-GGUF` | 统一扩展+重排序（可选） |
 | [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` | 仅重排序（可选） |
@@ -135,6 +134,10 @@ ir status                    # 各集合索引状态
 **索引与嵌入：**
 
 ```bash
+ir sync                      # 同步所有集合和嵌入
+ir sync notes                # 指定集合
+ir sync notes --force        # 重建文本并重新生成向量
+
 ir update                    # 索引所有集合
 ir update notes              # 索引指定集合
 ir update notes --force      # 从头完整重建索引
@@ -227,7 +230,8 @@ ir 通过 SHA-256 哈希内容寻址存储高效处理更新，仅重新处理�
 
 - **变更检测**：对文件进行哈希（SHA-256）并与存储的哈希比较
 - **智能更新**：仅重新处理已修改或新增的文件
-- **删除处理**：已移除的文件被标记为非活跃（软删除）
+- **删除处理**：删除已移除文件的文档行；同一路径恢复时可正常重新添加
+- **自动修复**：下一次更新会自动清除旧版本留下的非活跃行
 - **去重**：集合内相同内容共享存储
 
 **索引操作：**
@@ -245,11 +249,16 @@ ir update notes
 # 输出："2 added, 1 updated, 0 deactivated"
 ```
 
+摘要中的 `deactivated` 为兼容性保留名称；对应路径现会从 `documents` 中实际删除。
+
 **嵌入操作：**
 
 ```bash
+# 用一个命令同步文本和向量
+ir sync notes
+
 # 增量嵌入（仅处理新增/变更文档）
-ir embed                     # 嵌入未处理内容
+ir embed                     # 先同步文本，再嵌入待处理内容
 ir embed notes               # 指定集合
 
 # 强制重新嵌入全部内容
@@ -268,16 +277,13 @@ ir embed notes --force       # 重新计算所有向量
 ```bash
 # 周一：初始设置
 ir collection add notes ~/notes
-ir update notes              # 索引 500 个文件
-ir embed notes               # 计算 500 个嵌入（慢）
+ir sync notes                # 索引并嵌入 500 个文件
 
 # 周二：新增 3 个文件，修改 2 个
-ir update notes              # 输出："3 added, 2 updated, 0 deactivated"
-ir embed notes               # 仅嵌入 5 个文档（快）
+ir sync notes                # 更新 5 个文档并仅嵌入新哈希
 
 # 周三：删除 1 个文件
-ir update notes              # 输出："0 added, 0 updated, 1 deactivated"
-# 删除无需重新嵌入
+ir sync notes                # 删除文档行；保留可复用的哈希缓存
 ```
 
 增量方式使得可以频繁运行 `ir update` 而不影响性能——仅处理变更内容。
@@ -519,7 +525,7 @@ cargo run --bin eval -- --data test-data/nfcorpus --mode all
 
 ```
 content          — 哈希 → 完整文本（内容寻址）
-documents        — 路径、标题、哈希、活跃标志
+documents        — 路径、标题、哈希、兼容性 active 标志
 documents_fts    — FTS5 虚拟表（porter 分词器）
 vectors_vec      — sqlite-vec kNN（768 维余弦，EmbeddingGemma 格式）
 content_vectors  — 分块元数据（哈希、序号、位置、模型）

@@ -48,12 +48,11 @@ Requires Rust 1.80+. On macOS, links llama.cpp with Metal automatically. On Linu
 
 ```bash
 ir collection add notes ~/notes   # register a collection
-ir update notes                   # scan files → extract text → populate FTS5 index (BM25)
-ir embed notes                    # chunk text → run embedding model → store vectors (enables vector + hybrid search)
+ir sync notes                     # synchronize text index + vector embeddings
 ir search "memory safety in rust" # search (daemon auto-starts)
 ```
 
-`ir update` is fast (no models, pure text processing). `ir embed` is slow on first run (model inference per chunk) but only re-embeds changed content on subsequent runs. BM25 search works after `update` alone; vector and hybrid search require `embed`.
+`ir sync` is the default maintenance command. It updates the text index, then embeds only content hashes without vectors. An unchanged collection does not load the embedding model. Use `ir update` for fast, model-free BM25-only indexing. `ir embed` remains available for vector repair and synchronizes the text index first.
 
 <details>
 <summary><strong>Models</strong></summary>
@@ -62,7 +61,7 @@ Models are downloaded automatically from HuggingFace Hub on first use and cached
 
 | Model | HF Repo | Required for |
 |---|---|---|
-| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir embed`, vector search, hybrid |
+| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir sync`, `ir embed`, vector search, hybrid |
 | [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF) | `unsloth/Qwen3.5-0.8B-GGUF` | unified expand + rerank (optional) |
 | [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) | `unsloth/Qwen3.5-2B-GGUF` | unified expand + rerank (optional) |
 | [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` | reranking only (optional) |
@@ -127,6 +126,10 @@ ir status                    # index health per collection
 **Index and embed:**
 
 ```bash
+ir sync                      # synchronize all collections and embeddings
+ir sync notes                # one collection
+ir sync notes --force        # rebuild text and regenerate vectors
+
 ir update                    # index all collections
 ir update notes              # one collection
 ir update notes --force      # full re-index from scratch
@@ -219,7 +222,8 @@ IR efficiently handles updates by only processing changed files through content-
 
 - **Change detection**: Files are hashed (SHA-256) and compared against stored hashes
 - **Smart updates**: Only modified or new files are re-processed
-- **Deletion handling**: Removed files are marked as inactive (soft delete)
+- **Deletion handling**: Removed document rows are deleted; returning paths are inserted normally
+- **Self-healing**: Legacy inactive rows are purged automatically during the next update
 - **Deduplication**: Identical content within a collection shares storage
 
 **Index operations:**
@@ -237,11 +241,16 @@ ir update notes
 # Output: "2 added, 1 updated, 0 deactivated"
 ```
 
+The summary retains `deactivated` as a compatibility label; those paths are now hard-deleted from `documents`.
+
 **Embedding operations:**
 
 ```bash
+# Synchronize text and vectors in one command
+ir sync notes
+
 # Incremental embedding (only new/changed documents)
-ir embed                     # embeds unembedded content
+ir embed                     # synchronizes text, then embeds pending content
 ir embed notes               # specific collection
 
 # Force re-embedding everything
@@ -260,16 +269,13 @@ ir embed notes --force       # re-computes all vectors
 ```bash
 # Monday: initial setup
 ir collection add notes ~/notes
-ir update notes              # indexes 500 files
-ir embed notes               # computes 500 embeddings (slow)
+ir sync notes                # indexes and embeds 500 files
 
 # Tuesday: added 3 files, modified 2
-ir update notes              # Output: "3 added, 2 updated, 0 deactivated"
-ir embed notes               # only embeds 5 documents (fast)
+ir sync notes                # updates 5 documents and embeds their new hashes
 
 # Wednesday: deleted 1 file
-ir update notes              # Output: "0 added, 0 updated, 1 deactivated"
-# No embedding needed for deletions
+ir sync notes                # removes the row; hash-addressed caches remain reusable
 ```
 
 The incremental approach means you can run `ir update` frequently without performance penalty — only changed content is processed.
@@ -526,7 +532,7 @@ Each collection database (`~/.config/ir/collections/<name>.sqlite`):
 
 ```
 content          — hash → full text (content-addressed)
-documents        — path, title, hash, active flag
+documents        — path, title, hash, compatibility active flag
 documents_fts    — FTS5 virtual table (porter tokenizer)
 vectors_vec      — sqlite-vec kNN (768d cosine, EmbeddingGemma format)
 content_vectors  — chunk metadata (hash, seq, pos, model)

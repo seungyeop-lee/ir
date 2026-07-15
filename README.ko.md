@@ -49,12 +49,11 @@ Rust 1.80 이상 필요. macOS에서 llama.cpp가 Metal과 자동 링크됩니�
 
 ```bash
 ir collection add notes ~/notes   # 컬렉션 등록
-ir update notes                   # 파일 스캔 → 텍스트 추출 → FTS5 인덱스 구축 (BM25)
-ir embed notes                    # 텍스트 청킹 → 임베딩 모델 실행 → 벡터 저장 (벡터 + 하이브리드 검색)
+ir sync notes                     # 텍스트 인덱스 + 벡터 임베딩 동기화
 ir search "러스트 메모리 안전성"  # 검색 (데몬 자동 시작)
 ```
 
-`ir update`는 빠릅니다 (모델 불필요, 순수 텍스트 처리). `ir embed`는 첫 실행 시 느리지만 (청크별 모델 추론), 이후에는 변경된 내용만 재임베딩합니다. BM25 검색은 `update`만으로 동작하며, 벡터 및 하이브리드 검색은 `embed`가 필요합니다.
+`ir sync`가 기본 유지보수 명령입니다. 텍스트 인덱스를 갱신한 뒤 벡터가 없는 콘텐츠 해시만 임베딩합니다. 변경 사항이 없으면 임베딩 모델을 로드하지 않습니다. 모델 없이 BM25만 빠르게 갱신하려면 `ir update`를 사용합니다. 벡터 복구용 `ir embed`도 먼저 텍스트 인덱스를 증분 동기화합니다.
 
 **한국어/일본어/중국어 컬렉션:**
 
@@ -77,7 +76,7 @@ ir search "서울 지하철" -c wiki
 
 | 모델 | HF 저장소 | 필요 기능 |
 |---|---|---|
-| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir embed`, 벡터 검색, 하이브리드 |
+| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir sync`, `ir embed`, 벡터 검색, 하이브리드 |
 | [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF) | `unsloth/Qwen3.5-0.8B-GGUF` | 통합 확장+재순위 (선택) |
 | [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) | `unsloth/Qwen3.5-2B-GGUF` | 통합 확장+재순위 (선택) |
 | [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` | 재순위화 전용 (선택) |
@@ -171,6 +170,10 @@ ir status                    # 컬렉션별 인덱스 상태
 **인덱싱 및 임베딩:**
 
 ```bash
+ir sync                      # 모든 컬렉션과 임베딩 동기화
+ir sync notes                # 특정 컬렉션
+ir sync notes --force        # 텍스트와 벡터 모두 재구축
+
 ir update                    # 모든 컬렉션 인덱싱
 ir update notes              # 특정 컬렉션
 ir update notes --force      # 전체 재인덱싱
@@ -263,7 +266,8 @@ IR은 SHA-256 해싱을 사용한 콘텐츠 주소 저장소를 통해 변경된
 
 - **변경 감지**: 파일을 해시(SHA-256)하여 저장된 해시와 비교
 - **스마트 업데이트**: 수정되거나 새로운 파일만 재처리
-- **삭제 처리**: 제거된 파일은 비활성으로 표시 (소프트 삭제)
+- **삭제 처리**: 제거된 문서 행을 삭제하며, 같은 경로가 돌아오면 정상적으로 다시 추가
+- **자동 복구**: 이전 버전의 비활성 행을 다음 업데이트에서 자동 삭제
 - **중복 제거**: 컬렉션 내 동일한 콘텐츠는 저장소 공유
 
 **인덱스 작업:**
@@ -281,11 +285,16 @@ ir update notes
 # 출력: "2 added, 1 updated, 0 deactivated"
 ```
 
+요약의 `deactivated`는 호환성을 위해 유지한 이름이며, 해당 경로의 `documents` 행은 실제로 삭제됩니다.
+
 **임베딩 작업:**
 
 ```bash
+# 텍스트와 벡터를 한 명령으로 동기화
+ir sync notes
+
 # 증분 임베딩 (새로운/변경된 문서만)
-ir embed                     # 미임베딩 콘텐츠 임베딩
+ir embed                     # 텍스트 동기화 후 미임베딩 콘텐츠 처리
 ir embed notes               # 특정 컬렉션
 
 # 전체 재임베딩 강제
@@ -304,16 +313,13 @@ ir embed notes --force       # 모든 벡터 재계산
 ```bash
 # 월요일: 초기 설정
 ir collection add notes ~/notes
-ir update notes              # 500개 파일 인덱싱
-ir embed notes               # 500개 임베딩 계산 (느림)
+ir sync notes                # 500개 파일 인덱싱 및 임베딩
 
 # 화요일: 3개 파일 추가, 2개 수정
-ir update notes              # 출력: "3 added, 2 updated, 0 deactivated"
-ir embed notes               # 5개 문서만 임베딩 (빠름)
+ir sync notes                # 5개 문서 갱신 후 새 해시만 임베딩
 
 # 수요일: 1개 파일 삭제
-ir update notes              # 출력: "0 added, 0 updated, 1 deactivated"
-# 삭제에는 임베딩 불필요
+ir sync notes                # 문서 행 삭제; 해시 기반 캐시는 재사용 가능
 ```
 
 증분 방식으로 인해 성능 저하 없이 `ir update`를 자주 실행할 수 있습니다 — 변경된 콘텐츠만 처리됩니다.
@@ -570,7 +576,7 @@ cargo run --bin eval -- --data test-data/nfcorpus --mode all
 
 ```
 content          — 해시 → 전체 텍스트 (내용 주소)
-documents        — 경로, 제목, 해시, 활성 플래그
+documents        — 경로, 제목, 해시, 호환성용 active 플래그
 documents_fts    — FTS5 가상 테이블 (porter 토크나이저)
 vectors_vec      — sqlite-vec kNN (768차원 코사인, EmbeddingGemma 형식)
 content_vectors  — 청크 메타데이터 (해시, 순번, 위치, 모델)

@@ -108,7 +108,11 @@ Idle timeout: 3600s (configurable via `ir daemon start --timeout`).
 
 release.flow: rust-ci
 
-CI (GitHub Actions) handles build, GitHub release, and Homebrew tap on tag push.
+- Release atomic references resolve under `~/.claude/skills/release/atomic/`; run release state checks separately because an empty `rg --files knowledge/sessions` exits 1
+- Before editing release guidance, inspect the checked-in section with `rg -n -A45 -B3 '^## Release|release\.flow|GitHub Actions|git push origin' AGENTS.md`; session-provided instructions may omit local additions
+- For release secret scans, run double-quoted and single-quoted assignment patterns as separate `rg` commands; combining both quote classes in one zsh command can produce an unmatched-quote error
+
+`.github/workflows/release.yml` is the release source of truth. A pushed `v*` tag runs checks, builds release artifacts, creates the GitHub release, updates the Homebrew tap, and publishes `ir-search` to crates.io. Do not also run `cargo publish`, `gh release create`, or update the tap manually.
 
 ```bash
 # Bump version
@@ -122,7 +126,8 @@ sed -i '' "s/^## \[Unreleased\]/## [$VERSION] - $(date +%Y-%m-%d)/" CHANGELOG.md
 git add Cargo.toml Cargo.lock CHANGELOG.md
 git commit -m "v$VERSION"
 git tag -a "v$VERSION" -m "v$VERSION"
-git push origin main --tags
+git push origin main
+git push origin "refs/tags/v$VERSION"
 ```
 
 Prerequisites: `TAP_TOKEN` and `CRATES_IO_TOKEN` secrets set in GitHub repo settings.
@@ -140,12 +145,15 @@ CI handles: build, GitHub release, Homebrew tap update, and crates.io publish.
 - items_after_test_module: in Rust files, keep non-test items (impl fns, helper fns) BEFORE any #[cfg(test)] mod block — clippy::items_after_test_module will fail the build
 - build_query_natural in db/fts.rs is used for all production BM25 queries; uses OR + stop word stripping for natural-language queries, AND for short keyword queries
 - cargo clippy --all-targets -- -D warnings must pass before release; check llm/ files for needless_borrow when updating llama.cpp bindings
+- Format touched Rust files with `rustfmt --edition 2024 --config skip_children=true <files>`; plain `rustfmt` on crate roots recursively reformats untouched child modules
+- `cargo test` does not guarantee `target/debug/ir` is refreshed; run `cargo build --bin ir` before CLI smoke tests
 - warn_stale_preprocessor() in src/main.rs is a migration shim for ≤0.9.x users — removed at v0.13.0
 - Research-only env vars (IR_BENCH_SIGNALS, IR_DISABLE_SHORTCUTS, IR_FORCE_TIER1_ONLY, IR_STRONG_SIGNAL_*_OVERRIDE, IR_BM25_STRONG_*_OVERRIDE, IR_ALLOW_EXPANSION_WITHOUT_SCORER) must NOT appear in README; CHANGELOG may name them only under "Dev / Benchmark Tooling"; document in CLAUDE.md env table
 - preprocess.rs sentinel protocol (IRSENTINEL): process_line() sends content line + IRSENTINEL, reads until IRSENTINEL — prevents pipe deadlock when lindera emits no stdout for all-filtered lines (e.g. punctuation-only). Custom preprocessors must pass ASCII-only single-word lines through unchanged. When any preprocessor command changes (new binary, flags, or external tool replacing custom code): run probe `printf '.\n안녕하세요\ntest\n' | <new_command> 2>/dev/null | wc -l` — must equal 3, or WARN and confirm sentinel covers the 0-output case. Test suite must include at least one test where process_line() is called with a line the subprocess drops.
 - IR_DIR is set internally at startup (= resolved ir_dir() value); appears in preprocessor commands as $IR_DIR/preprocessors/... for portability — do not expose in user-facing docs
 - All path env vars (IR_CONFIG_DIR, IR_MODEL_DIRS, IR_*_MODEL) support ~ and $VAR expansion via expand_path() in src/config/mod.rs — tests for this must use ENV_LOCK mutex to prevent parallel env var interference
 - scripts/preship.sh must pass (exit 0 or 2) before any signal-sweep run or release; run `--bm25-only` for fast CI gate, full for pre-release
+- Run `cargo build --release --bin ir` immediately before `bash scripts/preship.sh`; preship only builds when `target/release/ir` is absent and otherwise reuses the existing binary
 - Default pool size for MIRACL-Ko signal sweeps: 50000 docs. Minimum stable floor from the variance study: 10000 docs. Do not use pool sizes <= 503 for between-seed variance decisions; those pools collapse to the mandatory qrel-linked docs and are deterministic.
 - zh fixture (test-data/fixtures/synthetic-zh) must be calibrated before shipping zh-related changes; run `ir preprocessor install zh && scripts/calibrate-fixtures.sh synthetic-zh` then commit updated expected.json
 - scripts/preship.sh --fixture synthetic-zh must pass (exit 0 or 2) before any zh-related release

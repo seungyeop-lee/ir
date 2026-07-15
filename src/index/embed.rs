@@ -29,11 +29,7 @@ pub fn embed(
     // Adapt vector table dimension to match the loaded model.
     db::ensure_vector_dimension(conn, embedder.embedding_dim())?;
 
-    // Clean up embeddings for hashes no longer referenced by any active document.
-    cleanup_orphaned(conn)?;
-
-    // Find documents whose content is not yet embedded (or force all).
-    let pending_count = count_pending(conn, opts.force)?;
+    let pending_count = pending_count(conn, opts.force)?;
 
     if pending_count == 0 {
         return Ok((0, 0));
@@ -120,7 +116,9 @@ pub fn embed(
     Ok((total_docs, total_chunks))
 }
 
-fn count_pending(conn: &Connection, force: bool) -> Result<usize> {
+/// Return the number of documents requiring inference without loading the model.
+/// Unreferenced hashes remain reusable caches until an explicit force rebuild.
+pub fn pending_count(conn: &Connection, force: bool) -> Result<usize> {
     let sql = if force {
         "
         SELECT COUNT(DISTINCT d.hash)
@@ -187,62 +185,6 @@ fn load_pending_batch(
         .map_err(Into::into)
 }
 
-/// Remove content_vectors (and their vectors) for hashes no longer in active documents.
-fn cleanup_orphaned(conn: &Connection) -> Result<()> {
-    let orphaned: Vec<String> = {
-        let sql = "
-            SELECT DISTINCT cv.hash
-            FROM content_vectors cv
-            WHERE NOT EXISTS (
-                SELECT 1 FROM documents d WHERE d.hash = cv.hash AND d.active = 1
-            )
-        ";
-        let mut stmt = conn.prepare(sql)?;
-        stmt.query_map([], |r| r.get(0))?
-            .filter_map(|r| r.ok())
-            .collect()
-    };
-
-    if orphaned.is_empty() {
-        return Ok(());
-    }
-
-    // Collect all hash_seqs to delete in one query.
-    let hash_seqs: Vec<String> = {
-        let ph = orphaned.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let sql = format!("SELECT hash, seq FROM content_vectors WHERE hash IN ({ph})");
-        let mut stmt = conn.prepare(&sql)?;
-        stmt.query_map(
-            rusqlite::params_from_iter(orphaned.iter().map(|s| s.as_str())),
-            |r| {
-                Ok(format!(
-                    "{}_{}",
-                    r.get::<_, String>(0)?,
-                    r.get::<_, i64>(1)?
-                ))
-            },
-        )?
-        .filter_map(|r| r.ok())
-        .collect()
-    };
-
-    if !hash_seqs.is_empty() {
-        let ph = hash_seqs.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        conn.execute(
-            &format!("DELETE FROM vectors_vec WHERE hash_seq IN ({ph})"),
-            rusqlite::params_from_iter(hash_seqs.iter().map(|s| s.as_str())),
-        )?;
-    }
-
-    let ph = orphaned.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-    conn.execute(
-        &format!("DELETE FROM content_vectors WHERE hash IN ({ph})"),
-        rusqlite::params_from_iter(orphaned.iter().map(|s| s.as_str())),
-    )?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,7 +219,7 @@ mod tests {
         let pending = load_pending_batch(&conn, false, None, 10).unwrap();
         assert_eq!(pending.len(), 1, "should find 1 unembedded doc");
         assert_eq!(pending[0].2, hash);
-        assert_eq!(count_pending(&conn, false).unwrap(), 1);
+        assert_eq!(pending_count(&conn, false).unwrap(), 1);
     }
 
     #[test]
@@ -304,7 +246,7 @@ mod tests {
 
         let pending = load_pending_batch(&conn, false, None, 10).unwrap();
         assert_eq!(pending.len(), 0, "should skip already-embedded doc");
-        assert_eq!(count_pending(&conn, false).unwrap(), 0);
+        assert_eq!(pending_count(&conn, false).unwrap(), 0);
     }
 
     #[test]
@@ -327,7 +269,7 @@ mod tests {
 
         let pending = load_pending_batch(&conn, false, None, 10).unwrap();
         assert_eq!(pending.len(), 1, "shared content hash should embed once");
-        assert_eq!(count_pending(&conn, false).unwrap(), 1);
+        assert_eq!(pending_count(&conn, false).unwrap(), 1);
     }
 
     /// Requires embedding model — skip in CI.

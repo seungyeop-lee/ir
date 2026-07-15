@@ -56,6 +56,7 @@ fn run() -> Result<()> {
     match cli.command {
         Command::Collection { cmd } => handle_collection(cmd),
         Command::Status => handle_status(),
+        Command::Sync { collection, force } => handle_sync(collection, force),
         Command::Update { collection, force } => handle_update(collection, force),
         Command::Embed { collection, force } => handle_embed(collection, force),
         Command::Search {
@@ -322,30 +323,44 @@ fn handle_status() -> Result<()> {
 
 fn handle_update(collection: Option<String>, force: bool) -> Result<()> {
     let config = Config::load()?;
-    let cols: Vec<_> = match &collection {
-        Some(name) => {
-            let c = config
-                .get_collection(name)
-                .ok_or_else(|| error::Error::CollectionNotFound(name.clone()))?;
-            vec![c]
-        }
-        None => config.collections.iter().collect(),
-    };
+    let cols = index_collections(&config, collection.as_deref())?;
 
     for col in cols {
-        let db_path = collection_db_path(&col.name);
-        let pp_aliases = col.preprocessor.as_deref().unwrap_or(&[]);
-        let has_preprocessor = !config.resolve_preprocessor_commands(pp_aliases).is_empty();
-        let db = db::CollectionDb::open(&col.name, &db_path, has_preprocessor)?;
-        println!("updating '{}'…", col.name);
-        let opts = index::UpdateOptions { force };
-        let (added, updated, deactivated) = index::update(&db, col, &opts, &config)?;
-        println!(
-            "  {} added, {} updated, {} deactivated",
-            added, updated, deactivated
-        );
+        update_collection(&config, col, force)?;
     }
     Ok(())
+}
+
+fn update_collection(
+    config: &Config,
+    collection: &Collection,
+    force: bool,
+) -> Result<db::CollectionDb> {
+    let db_path = collection_db_path(&collection.name);
+    let pp_aliases = collection.preprocessor.as_deref().unwrap_or(&[]);
+    let has_preprocessor = !config.resolve_preprocessor_commands(pp_aliases).is_empty();
+    let db = db::CollectionDb::open(&collection.name, &db_path, has_preprocessor)?;
+    println!("updating '{}'…", collection.name);
+    let opts = index::UpdateOptions { force };
+    let (added, updated, deactivated) = index::update(&db, collection, &opts, config)?;
+    println!(
+        "  {} added, {} updated, {} deactivated",
+        added, updated, deactivated
+    );
+    Ok(db)
+}
+
+fn index_collections<'a>(
+    config: &'a Config,
+    collection: Option<&str>,
+) -> Result<Vec<&'a Collection>> {
+    match collection {
+        Some(name) => config
+            .get_collection(name)
+            .map(|c| vec![c])
+            .ok_or_else(|| error::Error::CollectionNotFound(name.to_string())),
+        None => Ok(config.collections.iter().collect()),
+    }
 }
 
 /// Search core: runs the tier-0/1/2 pipeline and returns ranked results.
@@ -1117,29 +1132,49 @@ fn extract_zip_flat(zip_path: &Path, dest_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+// ^ docs: README.md#quick-start
+fn handle_sync(collection: Option<String>, force: bool) -> Result<()> {
+    handle_sync_phases(collection.as_deref(), force, force)
+}
+
 fn handle_embed(collection: Option<String>, force: bool) -> Result<()> {
+    handle_sync_phases(collection.as_deref(), false, force)
+}
+
+fn handle_sync_phases(
+    collection: Option<&str>,
+    force_update: bool,
+    force_embed: bool,
+) -> Result<()> {
     let config = Config::load()?;
-    let cols: Vec<_> = match &collection {
-        Some(name) => {
-            let c = config
-                .get_collection(name)
-                .ok_or_else(|| error::Error::CollectionNotFound(name.clone()))?;
-            vec![c]
+    let cols = index_collections(&config, collection)?;
+    let mut pending = Vec::with_capacity(cols.len());
+
+    for col in &cols {
+        let db = update_collection(&config, col, force_update)?;
+        let count = index::embed::pending_count(db.conn(), force_embed)?;
+        pending.push((db, count));
+    }
+
+    if pending.iter().all(|(_, count)| *count == 0) {
+        for (db, _) in pending {
+            println!("embedding '{}'…", db.name);
+            println!("  0 documents, 0 chunks embedded");
         }
-        None => config.collections.iter().collect(),
-    };
+        return Ok(());
+    }
 
     llm::download::prepare_model_envs()?;
     println!("loading embedding model…");
     let embedder = llm::embedding::Embedder::load_default()?;
 
-    for col in cols {
-        let db_path = collection_db_path(&col.name);
-        let pp_aliases = col.preprocessor.as_deref().unwrap_or(&[]);
-        let has_preprocessor = !config.resolve_preprocessor_commands(pp_aliases).is_empty();
-        let db = db::CollectionDb::open(&col.name, &db_path, has_preprocessor)?;
-        println!("embedding '{}'…", col.name);
-        let opts = index::embed::EmbedOptions { force };
+    for (db, count) in pending {
+        println!("embedding '{}'…", db.name);
+        if count == 0 {
+            println!("  0 documents, 0 chunks embedded");
+            continue;
+        }
+        let opts = index::embed::EmbedOptions { force: force_embed };
         let (docs, chunks) = index::embed::embed(&db, &embedder, &opts, llm::models::EMBEDDING)?;
         println!("  {} documents, {} chunks embedded", docs, chunks);
     }
