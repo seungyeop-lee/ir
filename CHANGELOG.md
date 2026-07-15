@@ -1,13 +1,13 @@
-## [Unreleased]
+## [0.16.0] - 2026-07-15
 
 ### Features
 
-- **`ir sync`** (`src/cli/mod.rs`, `src/main.rs`): synchronizes the text index and then embeds only pending content hashes. Unchanged collections skip model loading. `--force` rebuilds both phases. `ir embed` now performs an incremental text synchronization before vector repair.
+- **`ir sync`** (`src/cli/mod.rs`, `src/main.rs`): synchronizes the text index and then embeds only pending content hashes. Unchanged collections skip model loading. `--force` rebuilds both phases. `ir embed` now performs an incremental text synchronization before vector repair. ([`df56acb`](https://github.com/vlwkaos/ir/commit/df56acb3842b945bd48ff5d29811350d063aec2b))
 
 ### Fixes
 
-- **Self-healing incremental updates** (`src/index/mod.rs`, `src/db/schema.rs`): removed files are hard-deleted instead of retained as inactive tombstones. Legacy inactive rows are purged transactionally, so a deleted or moved path can return without `UNIQUE constraint failed: documents.path`. Scanning and hashing now finish before force rebuilds mutate the last committed index. Preprocessor-state metadata is committed only after the matching FTS rebuild succeeds.
-- **Reusable reappearance caches** (`src/index/embed.rs`): unreferenced content hashes and vectors remain cache entries, so identical moved or restored content does not require model inference again. A force rebuild still clears all cached vectors.
+- **Self-healing incremental updates** (`src/index/mod.rs`, `src/db/schema.rs`): removed files are hard-deleted instead of retained as inactive tombstones. Legacy inactive rows are purged transactionally, so a deleted or moved path can return without `UNIQUE constraint failed: documents.path`. Scanning and hashing now finish before force rebuilds mutate the last committed index. Preprocessor-state metadata is committed only after the matching FTS rebuild succeeds. ([`df56acb`](https://github.com/vlwkaos/ir/commit/df56acb3842b945bd48ff5d29811350d063aec2b))
+- **Reusable reappearance caches** (`src/index/embed.rs`): unreferenced content hashes and vectors remain cache entries, so identical moved or restored content does not require model inference again. A force rebuild still clears all cached vectors. ([`df56acb`](https://github.com/vlwkaos/ir/commit/df56acb3842b945bd48ff5d29811350d063aec2b))
 
 ## [0.15.0] - 2026-05-06
 
