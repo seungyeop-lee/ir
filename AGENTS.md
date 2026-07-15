@@ -111,6 +111,7 @@ release.flow: rust-ci
 - Release atomic references resolve under `~/.claude/skills/release/atomic/`; run release state checks separately because an empty `rg --files knowledge/sessions` exits 1
 - Before editing release guidance, inspect the checked-in section with `rg -n -A45 -B3 '^## Release|release\.flow|GitHub Actions|git push origin' AGENTS.md`; session-provided instructions may omit local additions
 - For release secret scans, run double-quoted and single-quoted assignment patterns as separate `rg` commands; combining both quote classes in one zsh command can produce an unmatched-quote error
+- Resolve changelog commit URLs with `git rev-parse HEAD`; never manually expand an abbreviated hash
 
 `.github/workflows/release.yml` is the release source of truth. A pushed `v*` tag runs checks, builds release artifacts, creates the GitHub release, updates the Homebrew tap, and publishes `ir-search` to crates.io. Do not also run `cargo publish`, `gh release create`, or update the tap manually.
 
