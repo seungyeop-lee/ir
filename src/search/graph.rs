@@ -169,7 +169,8 @@ pub fn maybe_expand_t2(dbs: &[CollectionDb], results: &mut Vec<SearchResult>) {
     if !t2_expand_enabled() || results.is_empty() {
         return;
     }
-    let keep = results.len() + 30;
+    let inject = env_f64("IR_GRAPH_T2_INJECT", 30.0) as usize;
+    let keep = results.len() + inject;
     expand_with_activation(dbs, results, keep, /* force_cap */ true);
 }
 

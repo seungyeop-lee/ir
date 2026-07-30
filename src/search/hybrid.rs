@@ -355,9 +355,9 @@ impl HybridSearch {
             });
         }
 
-        // 4. Rerank top-20 if scorer available.
+        // 4. Rerank top window (default 20) if scorer available.
         let final_results = if let Some(scorer) = &self.scorer {
-            let n = enhanced.len().min(20);
+            let n = enhanced.len().min(rerank_window());
             log.info(format!("Reranking {n} chunks..."));
             let t0 = Instant::now();
             let result = rerank(
@@ -658,7 +658,17 @@ fn apply_min_score(
     results
 }
 
-/// Rerank top-20 using LLM scorer; blend with fusion scores (fused×0.4 + rerank×0.6).
+/// Rerank window size (default 20). `IR_RERANK_WINDOW_OVERRIDE` is research-only:
+/// GAR-style pool expansion may be starved by a small window (literature uses 100+).
+fn rerank_window() -> usize {
+    std::env::var("IR_RERANK_WINDOW_OVERRIDE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(20)
+}
+
+/// Rerank the top window using LLM scorer; blend with fusion scores (fused×0.4 + rerank×0.6).
 /// Checks llm_cache before inference and writes new scores back.
 fn rerank(
     scorer: &dyn Scorer,
@@ -668,7 +678,7 @@ fn rerank(
     limit: usize,
     log: &mut Logger,
 ) -> Result<Vec<SearchResult>> {
-    let top_n = candidates.len().min(20);
+    let top_n = candidates.len().min(rerank_window());
     let (to_rerank, rest) = candidates.split_at_mut(top_n);
 
     // Build cache keys: sha256(model_id + "\0" + query + "\0" + content_hash)
