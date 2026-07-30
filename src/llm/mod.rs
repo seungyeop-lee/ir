@@ -113,16 +113,18 @@ pub fn gpu_layers() -> u32 {
     std::env::var("IR_GPU_LAYERS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(if cfg!(any(
-            feature = "llama-metal",
-            feature = "llama-cuda",
-            feature = "llama-rocm",
-            feature = "llama-vulkan",
-        )) {
-            99
-        } else {
-            0
-        })
+        .unwrap_or(
+            if cfg!(any(
+                feature = "llama-metal",
+                feature = "llama-cuda",
+                feature = "llama-rocm",
+                feature = "llama-vulkan",
+            )) {
+                99
+            } else {
+                0
+            },
+        )
 }
 
 /// Returns the label of the active GPU backend ("Metal", "CUDA", "ROCm", "Vulkan"),
@@ -356,15 +358,16 @@ pub fn to_bytes(v: &[f32]) -> Vec<u8> {
     v.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
+/// Deserialize little-endian bytes from sqlite-vec back to f32s.
+pub fn from_bytes(b: &[u8]) -> Vec<f32> {
+    b.chunks_exact(4)
+        .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn from_bytes(b: &[u8]) -> Vec<f32> {
-        b.chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-            .collect()
-    }
 
     #[test]
     fn l2_normalize_unit_vector() {

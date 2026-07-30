@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS document_metadata (
     PRIMARY KEY (document_id, key, value)
 );
 
+-- kNN document similarity graph (research: built via IR_GRAPH_BUILD=1 during `ir embed`).
+-- Doc-level edges; weight = max cosine similarity across the two docs' chunk embeddings.
+CREATE TABLE IF NOT EXISTS doc_graph (
+    doc_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    neighbor_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    weight      REAL NOT NULL,
+    PRIMARY KEY (doc_id, neighbor_id)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_documents_hash   ON documents (hash);
 CREATE INDEX IF NOT EXISTS idx_documents_active ON documents (active);

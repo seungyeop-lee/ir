@@ -51,6 +51,17 @@ Results cached at `logs/results/{dataset}/{git7}.json` (gitignored).
 | `IR_BM25_STRONG_FLOOR_OVERRIDE` | unset | Research: override BM25 strong-signal floor threshold |
 | `IR_BM25_STRONG_GAP_OVERRIDE` | unset | Research: override BM25 strong-signal gap threshold |
 | `IR_ALLOW_EXPANSION_WITHOUT_SCORER` | unset | Research: allow expansion without reranker (harmful in production: -0.53% nDCG on NFCorpus) |
+| `IR_GRAPH_BUILD` | unset | Research: build `doc_graph` cosine-kNN edges during `ir embed` |
+| `IR_GRAPH_K` | `10` | Research: top-k neighbors per doc at graph build |
+| `IR_GRAPH_T0_EXPAND` | unset | Research: tier-0 graph expansion via capped score propagation (wins thin-list corpora only) |
+| `IR_GRAPH_T0_MODE` | `cap` | Research: `rrf` switches tier-0 expansion to RRF fusion (measured harmful; kept for A/B) |
+| `IR_GRAPH_T1_CONSENSUS` | unset | Research: tier-1 neighborhood consensus boost (measured neutral + fire-rate harmful; kept for A/B) |
+| `IR_GRAPH_T2_EXPAND` | unset | Research: GAR-style rerank pool expansion at tier 2; injected docs bypass metadata filters |
+| `IR_GRAPH_DECAY` | `0.8` | Research: activation decay γ for graph propagation |
+| `IR_GRAPH_SEEDS` | `10` | Research: number of top results used as propagation seeds |
+| `IR_GRAPH_LAMBDA` | `0.2` | Research: consensus blend weight (T1 consensus) |
+| `IR_GRAPH_RRF_WEIGHT` | `0.5` | Research: graph-mass weight in RRF mode |
+| `IR_BENCH_MAX_SWAPOUT_DELTA` | `0` | Research: bench watchdog tolerance for system swapouts before abort (bench-env.sh) |
 
 Config dir precedence: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`
 
@@ -163,3 +174,5 @@ CI handles: build, GitHub release, Homebrew tap update, and crates.io publish.
 - PreprocessHandle::spawn expands all args via expand_path (not just the binary); preprocessor commands may use $IR_DIR or ~ in any arg position — IR_DIR is set by ir at startup (main.rs:54), tests that spawn preprocessors directly must set IR_DIR manually
 - speed floors in expected.json must be calibrated from a full run (with embed) when the fixture includes vector/hybrid modes; BM25-only calibration sets unrealistically high floors that fail on embed runs — reset min_index_docs_per_s to 5 and max_query_p50_ms to 2000 until full GPU calibration runs
 - bench_env_init preprocessors symlink: state dirs get a symlink to the live source preprocessors on each init, replacing stale real directories; after ir preprocessor install, bench scopes that ran before the install have stale config.yml — delete scope's config.yml to force re-copy on next run
+
+- Uncertain about project term/schema/convention/prior decision → `/seek <topic>` first (lightweight KB lookup; same tier as grep/Glob).

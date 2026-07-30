@@ -4,6 +4,7 @@
 
 pub mod expander_cache;
 pub mod fts;
+pub mod graph;
 pub mod schema;
 pub mod vectors;
 

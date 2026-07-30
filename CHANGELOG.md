@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Dev / Benchmark Tooling
+
+- **Research: corpus doc graph** (`src/db/graph.rs`, `src/search/graph.rs`, `src/db/schema_base.sql`): per-collection `doc_graph(doc_id, neighbor_id, weight)` table with a cosine-kNN builder (`IR_GRAPH_BUILD=1 ir embed <col>`), plus env-gated graph-expansion ranking experiments at all three tiers (`IR_GRAPH_T0_EXPAND`, `IR_GRAPH_T0_MODE`, `IR_GRAPH_T1_CONSENSUS`, `IR_GRAPH_T2_EXPAND`; tuning knobs `IR_GRAPH_K`, `IR_GRAPH_DECAY`, `IR_GRAPH_SEEDS`, `IR_GRAPH_LAMBDA`, `IR_GRAPH_RRF_WEIGHT`). All flags are research-only and inert by default; production behavior is unchanged. Benchmark verdicts recorded in the project knowledge base.
+- **Bench watchdog swapout tolerance** (`scripts/bench-env.sh`): `IR_BENCH_MAX_SWAPOUT_DELTA` allows N system swapouts before aborting (default 0 preserves the old zero-tolerance behavior), enabling multi-hour benchmark runs on busy machines.
+- `llm::from_bytes` promoted to `pub` for embedding-blob decoding in research tooling.
+
 ## [0.16.0] - 2026-07-15
 
 ### Features

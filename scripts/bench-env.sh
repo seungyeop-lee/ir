@@ -84,6 +84,11 @@ bench_run_guarded() {
     local min_free_pct="${IR_BENCH_MIN_FREE_PCT:-8}"
     local max_ir_cpu_pct="${IR_BENCH_MAX_IR_CPU_PCT:-800}"
     local cpu_strikes_limit="${IR_BENCH_CPU_STRIKES:-3}"
+    # Pages of cumulative system swapout drift tolerated before aborting.
+    # 0 = any increase aborts (strictest). Long runs on a busy machine see
+    # benign background paging (~50k pages/15min observed); the free-pct floor
+    # still guards real exhaustion when this is raised.
+    local max_swapout_delta="${IR_BENCH_MAX_SWAPOUT_DELTA:-0}"
     local swapouts_start
     swapouts_start="$(bench_swapouts)"
     [[ -n "$swapouts_start" ]] || swapouts_start=0
@@ -108,8 +113,8 @@ bench_run_guarded() {
 
             if [[ -n "$free_pct" && "$free_pct" =~ ^[0-9]+$ ]] && (( free_pct <= min_free_pct )); then
                 reason="memory free ${free_pct}% <= ${min_free_pct}%"
-            elif [[ -n "$swapouts_now" && "$swapouts_now" =~ ^[0-9]+$ ]] && (( swapouts_now > swapouts_start )); then
-                reason="swapouts increased (${swapouts_start} -> ${swapouts_now})"
+            elif [[ -n "$swapouts_now" && "$swapouts_now" =~ ^[0-9]+$ ]] && (( swapouts_now > swapouts_start + max_swapout_delta )); then
+                reason="swapouts increased (${swapouts_start} -> ${swapouts_now}, delta > ${max_swapout_delta})"
             elif [[ -n "$ir_cpu_pct" && "$ir_cpu_pct" =~ ^[0-9]+$ ]] && (( ir_cpu_pct >= max_ir_cpu_pct )); then
                 cpu_strikes=$((cpu_strikes + 1))
                 if (( cpu_strikes >= cpu_strikes_limit )); then

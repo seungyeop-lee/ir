@@ -217,6 +217,15 @@ impl HybridSearch {
         let mut fused = fused;
         super::filter::apply(&mut fused, req.filter, dbs)?;
 
+        // Research: kNN-graph neighborhood consensus boost (IR_GRAPH_T1_CONSENSUS=1).
+        // Rescores in place before signal emission and the strong-signal check,
+        // so both see the boosted distribution.
+        if super::graph::t1_consensus_enabled() {
+            let t0 = Instant::now();
+            super::graph::maybe_consensus_t1(dbs, &mut fused);
+            log.timing("graph_boost", t0.elapsed());
+        }
+
         if fused.is_empty() {
             log.timing("total", t_total.elapsed());
             return Ok(SearchOutput {
@@ -328,6 +337,14 @@ impl HybridSearch {
         let mut enhanced = enhanced;
         if expansion_ran {
             super::filter::apply(&mut enhanced, req.filter, dbs)?;
+        }
+
+        // Research: GAR-style rerank-pool expansion (IR_GRAPH_T2_EXPAND=1).
+        // Graph proposes candidates; the reranker below is the query-aware judge.
+        if super::graph::t2_expand_enabled() && self.scorer.is_some() {
+            let t0 = Instant::now();
+            super::graph::maybe_expand_t2(dbs, &mut enhanced);
+            log.timing("graph_pool", t0.elapsed());
         }
 
         if enhanced.is_empty() {

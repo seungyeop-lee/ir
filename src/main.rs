@@ -418,6 +418,10 @@ pub(crate) fn search_core(
     };
     let mut bm25_results = search::fan_out::bm25(&dbs, &bm25_req)?;
 
+    // Research: kNN-graph expansion of BM25 seeds (IR_GRAPH_T0_EXPAND=1).
+    // Runs before tier-0 filter so injected docs are filtered like any other.
+    search::graph::maybe_expand_t0(&dbs, &mut bm25_results, fetch_limit);
+
     // Tier-0 filter: apply before BM25 strong-signal check
     search::filter::apply(&mut bm25_results, &filter, &dbs)?;
     if let Some(min) = min_score {
@@ -1160,6 +1164,7 @@ fn handle_sync_phases(
         for (db, _) in pending {
             println!("embedding '{}'…", db.name);
             println!("  0 documents, 0 chunks embedded");
+            maybe_build_graph(&db)?;
         }
         return Ok(());
     }
@@ -1172,12 +1177,34 @@ fn handle_sync_phases(
         println!("embedding '{}'…", db.name);
         if count == 0 {
             println!("  0 documents, 0 chunks embedded");
+            maybe_build_graph(&db)?;
             continue;
         }
         let opts = index::embed::EmbedOptions { force: force_embed };
         let (docs, chunks) = index::embed::embed(&db, &embedder, &opts, llm::models::EMBEDDING)?;
         println!("  {} documents, {} chunks embedded", docs, chunks);
+        maybe_build_graph(&db)?;
     }
+    Ok(())
+}
+
+/// Research: rebuild the kNN document graph after embedding (IR_GRAPH_BUILD=1).
+/// Reads stored chunk embeddings only — no model inference; safe on
+/// already-embedded collections (embed no-op still triggers a rebuild).
+fn maybe_build_graph(db: &db::CollectionDb) -> Result<()> {
+    if !matches!(
+        std::env::var("IR_GRAPH_BUILD").ok().as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    ) {
+        return Ok(());
+    }
+    let k = std::env::var("IR_GRAPH_K")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    println!("building doc graph for '{}' (k={k})…", db.name);
+    let (docs, edges) = db::graph::build(db.conn(), k)?;
+    println!("  {} documents, {} edges", docs, edges);
     Ok(())
 }
 
