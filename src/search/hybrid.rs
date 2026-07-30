@@ -226,6 +226,14 @@ impl HybridSearch {
             log.timing("graph_boost", t0.elapsed());
         }
 
+        // Research: kNN-graph cap injection into the fused list (IR_GRAPH_T1_EXPAND=1).
+        // Injected docs score below their seeds, so the strong-signal top is unchanged.
+        if super::graph::t1_expand_enabled() {
+            let t0 = Instant::now();
+            super::graph::maybe_expand_t1(dbs, &mut fused);
+            log.timing("graph_pool_t1", t0.elapsed());
+        }
+
         if fused.is_empty() {
             log.timing("total", t_total.elapsed());
             return Ok(SearchOutput {
@@ -280,8 +288,16 @@ impl HybridSearch {
 
         // 3. LLM enhancement: expand only when reranker is also available.
         // ! Expansion without reranking is harmful (p<0.05 on NFCorpus, -0.53% nDCG).
+        // Research: IR_GRAPH_AS_EXPANDER=1 skips the LLM expander (its ~3.5s is the
+        // dominant tier-2 cost) and lets graph injection below supply the extra
+        // candidates instead — LADR-style: the index-time graph IS the expansion.
+        let graph_as_expander =
+            super::graph::graph_as_expander_enabled() && self.scorer.is_some();
+        if graph_as_expander && self.expander.is_some() {
+            log.info("Graph-as-expander: skipping LLM expansion (research)");
+        }
         let (enhanced, expansion_ran) = if self.scorer.is_some() || allow_expand_without_scorer {
-            if let Some(exp) = &self.expander {
+            if let Some(exp) = self.expander.as_ref().filter(|_| !graph_as_expander) {
                 let t0 = Instant::now();
                 let cached = self
                     .expander_cache

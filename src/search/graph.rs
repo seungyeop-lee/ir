@@ -157,6 +157,28 @@ pub fn t2_expand_enabled() -> bool {
     env_flag("IR_GRAPH_T2_EXPAND")
 }
 
+pub fn t1_expand_enabled() -> bool {
+    env_flag("IR_GRAPH_T1_EXPAND")
+}
+
+pub fn graph_as_expander_enabled() -> bool {
+    env_flag("IR_GRAPH_AS_EXPANDER")
+}
+
+/// T1: cap-inject graph neighbors of the top fused seeds into the fused list.
+/// The tier-0 win used cap injection on BM25 seeds; this is the same move on
+/// fused (vector+bm25) seeds. Principle-2 prediction: small gains — tier 1
+/// already scans all vectors, so cosine neighbors of fused seeds are largely
+/// in the pool already. This run closes that matrix slot with a measurement.
+pub fn maybe_expand_t1(dbs: &[CollectionDb], results: &mut Vec<SearchResult>) {
+    if !t1_expand_enabled() || results.is_empty() {
+        return;
+    }
+    let inject = env_f64("IR_GRAPH_T1_INJECT", 30.0) as usize;
+    let keep = results.len() + inject;
+    expand_with_activation(dbs, results, keep, /* force_cap */ true);
+}
+
 /// T2 (GAR-style): expand the rerank candidate pool with graph neighbors of the
 /// top fused docs, BEFORE the cross-encoder judges the top-20. The graph only
 /// PROPOSES candidates here — the reranker is the query-aware judge, which is
