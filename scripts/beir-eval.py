@@ -367,7 +367,8 @@ def cmd_run(args):
                     if not relevant:
                         continue
 
-                    ranked, elapsed_ms, _ = search_one(ir_bin, collection, mode, q["text"], effective_k)
+                    ranked, elapsed_ms, _ = _search_one_signal_mode(
+                        ir_bin, collection, mode, q["text"], effective_k, os.environ.copy())
                     rec = {
                         "query_id": q["id"],
                         "ranked": ranked,
