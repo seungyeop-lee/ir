@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.17.1] - 2026-08-01
 
 ### Fixes
 
@@ -8,7 +8,7 @@
 ### Dev / Benchmark Tooling
 
 - **Corrected ANN validation** (supersedes the 0.17.0 figures): the original "99.91% overlap / 244→188ms" came from a benchmark whose daemon had silently fallen back to exact search (measuring exact-vs-exact). With the ANN path verified active on all 213 queries and a same-session exact baseline, MIRACL-ko 50k results are: top-10 overlap vs exact **98.7% at ef=96, 99.2% at ef=200, 99.8% at ef=400**; nDCG@10 **0.9170 exact = 0.9170 at ef≥200** (0.9123 at ef=96); tier-1 median latency **198ms exact → 162ms ANN**; index build 79s / 162MB. Recall rises monotonically with ef, confirming a correct measurement.
-- **Consistent research-flag parsing** (`src/config.rs`): `IR_ANN`, `IR_GRAPH_BUILD`, and the `IR_GRAPH_*` flags now share one case-insensitive boolean parser, so `IR_ANN=TRUE` and `IR_GRAPH_BUILD=TRUE` behave identically (previously some were case-sensitive, producing silently wrong A/B sweeps).
+- **Consistent research-flag parsing** (`src/config/mod.rs`): `IR_ANN`, `IR_GRAPH_BUILD`, and the `IR_GRAPH_*` flags now share one case-insensitive boolean parser, so `IR_ANN=TRUE` and `IR_GRAPH_BUILD=TRUE` behave identically (previously some were case-sensitive, producing silently wrong A/B sweeps).
 - **Guarded research numeric env inputs**: `IR_GRAPH_DECAY`/`IR_GRAPH_LAMBDA` reject non-finite values (a NaN silently scrambled rank order); `IR_GRAPH_K` is clamped to a sane range.
 - **`usearch` pinned to `=2.26.0`**: the vendored C++ engine is exact-pinned rather than caret-ranged, so `cargo install`/`cargo update` cannot pull unaudited 2.x.
 - **`LICENSE` file added** (MIT — matches the long-declared `Cargo.toml` license).
