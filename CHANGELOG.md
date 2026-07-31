@@ -1,3 +1,14 @@
+## [0.17.2] - 2026-08-01
+
+### Fixes
+
+- **Tier-2 metadata filter now applies to graph-injected candidates** (`src/search/hybrid.rs`): when the research `IR_GRAPH_T2_EXPAND` path injected graph neighbours into the rerank pool, the metadata filter (`-f meta.tags=…`, `-f path~…`) had already run, so injected docs could bypass it. The filter is now applied after both expansion and graph injection. (Research path, off by default; no effect on default search.)
+
+### Docs
+
+- README: hand-drawn pipeline diagram (preprocessor → tier 0/1/2 with latency badges), lean rewrite, real badges, LICENSE — EN/KO/ZH.
+- Added [research/adr-0001-default-retrieval-pipeline.md](research/adr-0001-default-retrieval-pipeline.md): the decision to make graph + ANN the default pipeline in 0.18, with index-time and query-time diagrams, measured rationale, seamless-migration plan, and rejected alternatives. 0.17.x remains opt-in.
+
 ## [0.17.1] - 2026-08-01
 
 ### Fixes

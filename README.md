@@ -21,15 +21,51 @@ ir search "memory safety in rust"    # search (daemon auto-starts)
 
 BM25 search works with no models at all. Vector/hybrid search downloads models automatically from HuggingFace on first use. Requires Rust 1.80+ if building from source; Metal is linked automatically on macOS, and Linux GPU backends are opt-in (`--features llama-cuda|llama-rocm|llama-vulkan`).
 
-## How it searches
+## How it searches — you only pay for what's hard
+
+Three tiers. Each fires **only if the previous one wasn't confident**, so the vast
+majority of queries return from tier 0 or 1 and never touch an LLM. One warm daemon
+holds every model in memory; every LLM output is cached in SQLite.
 
 ```
-query → BM25 (instant) → strong signal? → done
-      → hybrid fusion 0.80·vec + 0.20·bm25 → strong signal? → done
-      → query expansion (lex/vec/hyde) → RRF → LLM rerank
+  ir search "query"        ░ one warm daemon · every model resident · all LLM output cached ░
+              │
+              ▼
+  ┌────────────────────────┐
+  │  PREPROCESS   ko/ja/zh │   lindera morpheme tokenize · optional
+  │               ~sub-ms  │   SAME transform at index + query time
+  └───────────┬────────────┘
+              │   without it, CJK BM25 ≈ 0.00
+              ▼
+  ┌────────────────────────┐
+  │  TIER 0   BM25         │   FTS5 · no model · in-process
+  │           ~1 ms        │
+  └───────────┬────────────┘
+              │   top ≥ 0.75 & gap ≥ 0.10 ?   ── yes ─────►  ◎ results
+              │  no
+              ▼
+  ┌────────────────────────┐
+  │  TIER 1   Hybrid       │   + EmbeddingGemma-300M
+  │           ~50 ms       │   score = 0.80·vec + 0.20·bm25
+  └───────────┬────────────┘
+              │   strong fused signal ?       ── yes ─────►  ◎ results
+              │  no
+              ▼
+  ┌────────────────────────┐
+  │  TIER 2   Rerank       │   + Qwen3-Reranker-0.6B
+  │           ~0.3–5 s     │   final = 0.40·fused + 0.60·rerank
+  └───────────┬────────────┘
+              ▼
+           ◎ results
 ```
 
-Each tier runs only when the previous one isn't confident, so easy queries stay at millisecond latency and hard queries get the full LLM treatment. Expander outputs and reranker scores are cached in SQLite — repeated queries skip inference entirely.
+The preprocessor is the make-or-break stage for Korean/Japanese/Chinese: it morphologically
+tokenizes both the indexed text and the query, and without it CJK BM25 scores near zero.
+
+**Cold vs warm** (M4 Max): first query ~3.0 s while the daemon loads; every query after,
+~30 ms round-trip — and BM25 stays instant even during cold start. Optional research paths
+(graph expansion, HNSW ANN, LLM query expansion) plug into these same tiers and are
+**off by default** — see [Versions at a glance](#versions-at-a-glance).
 
 ## Measured quality (v0.17, nDCG@10)
 
@@ -47,6 +83,7 @@ Hybrid fusion needs only the 300M embedder (~50–280ms/query warm). The full pi
 - **≤ 0.15** — core pipeline, daemon, MCP, CJK preprocessors.
 - **0.16** — `ir sync` (one command for index + embed), self-healing incremental updates: deleted files are hard-removed and moved/restored content reuses cached vectors.
 - **0.17** — research infrastructure for graph-expanded retrieval and an optional HNSW ANN index, plus a much faster benchmark toolchain. **All of it is disabled by default and changes nothing about search behavior** — these are opt-in experiments, not baked-in features. Collection DBs gain two empty tables on first write; databases remain fully compatible in both directions with 0.16.
+- **0.18 (planned)** — the research paths above become the **default** pipeline: HNSW ANN for vector search, `doc_graph` derived from it (so graph build drops from O(N²) to O(N·log N)), tier-0 graph expansion, a wide reranker window, and the LLM query-expander dropped from the default (expansion moves to the calling agent). Migration is seamless — existing collections rebuild their index on the next `ir sync` and fall back to exact search until then. Rationale and measured results: [research/adr-0001-default-retrieval-pipeline.md](research/adr-0001-default-retrieval-pipeline.md).
 
 ## Documentation
 

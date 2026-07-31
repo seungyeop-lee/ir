@@ -21,15 +21,45 @@ ir search "memory safety in rust"    # 搜索（守护进程自动启动）
 
 BM25 检索无需任何模型。向量/混合检索在首次使用时自动从 HuggingFace 下载模型。从源码构建需要 Rust 1.80 及以上；macOS 上自动链接 Metal，Linux GPU 后端为可选启用（`--features llama-cuda|llama-rocm|llama-vulkan`）。
 
-## 检索流程
+## 检索流程 — 只为困难查询付出代价
+
+三层。每层**仅在上一层信心不足时**才运行，因此绝大多数查询在第 0 或第 1 层就返回，不触及 LLM。单个热守护进程将所有模型常驻内存，所有 LLM 输出都缓存在 SQLite 中。
 
 ```
-查询 → BM25（即时）→ 强信号？→ 完成
-     → 混合融合 0.80·向量 + 0.20·bm25 → 强信号？→ 完成
-     → 查询扩展（lex/vec/hyde）→ RRF → LLM 重排序
+  ir search "query"        ░ one warm daemon · every model resident · all LLM output cached ░
+              │
+              ▼
+  ┌────────────────────────┐
+  │  PREPROCESS   ko/ja/zh │   lindera morpheme tokenize · optional
+  │               ~sub-ms  │   SAME transform at index + query time
+  └───────────┬────────────┘
+              │   without it, CJK BM25 ≈ 0.00
+              ▼
+  ┌────────────────────────┐
+  │  TIER 0   BM25         │   FTS5 · no model · in-process
+  │           ~1 ms        │
+  └───────────┬────────────┘
+              │   top ≥ 0.75 & gap ≥ 0.10 ?   ── yes ─────►  ◎ results
+              │  no
+              ▼
+  ┌────────────────────────┐
+  │  TIER 1   Hybrid       │   + EmbeddingGemma-300M
+  │           ~50 ms       │   score = 0.80·vec + 0.20·bm25
+  └───────────┬────────────┘
+              │   strong fused signal ?       ── yes ─────►  ◎ results
+              │  no
+              ▼
+  ┌────────────────────────┐
+  │  TIER 2   Rerank       │   + Qwen3-Reranker-0.6B
+  │           ~0.3–5 s     │   final = 0.40·fused + 0.60·rerank
+  └───────────┬────────────┘
+              ▼
+           ◎ results
 ```
 
-每一层仅在上一层信心不足时才运行，因此简单查询保持毫秒级延迟，困难查询获得完整的 LLM 处理。扩展器输出和重排序分数缓存在 SQLite 中——重复查询完全跳过推理。
+预处理器是中日韩检索成败的关键：它对索引文本和查询做相同的形态素切分，没有它 CJK BM25 分数接近零。
+
+**冷启动 vs 热启动**（M4 Max）：首次查询约 3.0 秒（守护进程加载模型），之后每次查询约 30ms 往返——即使在冷启动期间 BM25 也即时响应。可选的研究路径（图扩展、HNSW ANN、LLM 查询扩展）接入相同的层级，且**默认关闭**——见[版本速览](#版本速览)。
 
 ## 实测质量（v0.17，nDCG@10）
 
@@ -47,6 +77,7 @@ BM25 检索无需任何模型。向量/混合检索在首次使用时自动从 H
 - **≤ 0.15** — 核心管线、守护进程、MCP、CJK 预处理器。
 - **0.16** — `ir sync`（索引 + 嵌入一条命令搞定），自愈式增量更新：已删除文件被彻底移除，移动/恢复的内容复用缓存向量。
 - **0.17** — 面向图扩展检索的研究基础设施和可选的 HNSW ANN 索引，以及快得多的基准测试工具链。**全部默认禁用，不改变任何检索行为**——这些是可选实验，不是内置特性。集合数据库在首次写入时新增两个空表；数据库与 0.16 双向完全兼容。
+- **0.18（计划中）** — 上述研究路径成为**默认**流程：向量检索用 HNSW ANN，`doc_graph` 由其派生（图构建从 O(N²) 降到 O(N·log N)），第 0 层图扩展，更宽的重排序窗口，并从默认流程中移除 LLM 查询扩展器（扩展交给调用方 agent）。迁移无缝——现有集合在下次 `ir sync` 时重建索引，在此之前回退到精确检索。理由与实测结果见 [research/adr-0001-default-retrieval-pipeline.md](research/adr-0001-default-retrieval-pipeline.md)。
 
 ## 文档
 

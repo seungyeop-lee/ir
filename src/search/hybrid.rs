@@ -348,19 +348,22 @@ impl HybridSearch {
             (fused, false)
         };
 
-        // Tier-2 filter: only when expansion ran (RRF produces new candidates not yet filtered).
-        // When no expansion, enhanced == fused which was already filtered at tier-1.
-        let mut enhanced = enhanced;
-        if expansion_ran {
-            super::filter::apply(&mut enhanced, req.filter, dbs)?;
-        }
-
         // Research: GAR-style rerank-pool expansion (IR_GRAPH_T2_EXPAND=1).
         // Graph proposes candidates; the reranker below is the query-aware judge.
-        if super::graph::t2_expand_enabled() && self.scorer.is_some() {
+        let mut enhanced = enhanced;
+        let graph_injected = super::graph::t2_expand_enabled() && self.scorer.is_some();
+        if graph_injected {
             let t0 = Instant::now();
             super::graph::maybe_expand_t2(dbs, &mut enhanced);
             log.timing("graph_pool", t0.elapsed());
+        }
+
+        // Tier-2 filter: apply AFTER both expansion RRF and graph injection, since
+        // each introduces candidates not seen by the tier-1 filter. Graph-injected
+        // docs must not bypass metadata filters (`-f meta.tags=…`, `path~…`).
+        // When neither ran, enhanced == fused, already filtered at tier-1 (no-op).
+        if expansion_ran || graph_injected {
+            super::filter::apply(&mut enhanced, req.filter, dbs)?;
         }
 
         if enhanced.is_empty() {

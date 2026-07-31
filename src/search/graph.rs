@@ -182,8 +182,8 @@ pub fn maybe_expand_t1(dbs: &[CollectionDb], results: &mut Vec<SearchResult>) {
 /// the role division the tier-0 fusion experiments showed is required.
 /// Cap-mode activation scoring places proposals just below their seeds so they
 /// enter the rerank window without displacing anything above it.
-/// ! Research mode: injected docs bypass metadata filters (bench collections
-///   don't use filters; wire through filter::apply before production use).
+/// The caller re-applies filter::apply after injection, so injected docs are
+/// subject to the same metadata filters as the rest of the pool.
 pub fn maybe_expand_t2(dbs: &[CollectionDb], results: &mut Vec<SearchResult>) {
     if !t2_expand_enabled() || results.is_empty() {
         return;
