@@ -1,76 +1,68 @@
 # ir
 
+[![crates.io](https://img.shields.io/crates/v/ir-search.svg)](https://crates.io/crates/ir-search)
+[![CI](https://github.com/vlwkaos/ir/actions/workflows/ci.yml/badge.svg)](https://github.com/vlwkaos/ir/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 [ENG](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
-Local semantic search engine for markdown knowledge bases. Rust port of [qmd](https://github.com/tobi/qmd) with three key differences:
-
-- **Per-collection SQLite** — each collection is an independent file; no shared global index
-- **Persistent daemon** — models stay loaded between queries; first search auto-starts it
-  Cold first queries can still return BM25 immediately while the daemon warms in the background.
-- **Dual LLM cache** — expander outputs and reranker scores are persisted; repeated queries are instant
-
-Search quality benchmarked on 4 BEIR datasets; reranking adds up to +14.5% nDCG@10 over pure vector.
-
-<details>
-<summary><strong>Features</strong></summary>
-
-- **Hybrid search** — BM25 probe → score fusion (0.80·vec + 0.20·bm25) → LLM reranking
-- **Query expansion** — typed sub-queries (lex/vec/hyde) when expander model is present
-- **Strong-signal shortcut** — skips expansion when top BM25 score ≥ 0.75 with gap ≥ 0.10
-- **Daemon mode** — keeps models warm between queries; auto-starts on first search
-  Cold start does not have to block the first useful BM25 result.
-- **Dual LLM cache** — expander outputs cached globally; reranker scores cached per-collection
-- **Per-collection SQLite** — independent WAL journals, isolated backup, zero cross-collection contention
-- **Content-addressed storage** — identical files deduplicated by SHA-256 within a collection
-- **FTS5 injection-safe** — all user input escaped before FTS5 query construction
-- **GPU acceleration** — Metal on macOS (default), CUDA/ROCm/Vulkan on Linux (opt-in via feature flags); `IR_GPU_LAYERS=N` to override
-- **Auto-download** — models fetched from HuggingFace Hub on first use; `HF_HUB_OFFLINE=1` to disable
-
-</details>
-
-## Installation
-
-**Homebrew (macOS):**
+Local semantic search for markdown knowledge bases. BM25 + vector + LLM reranking, entirely on your machine — one SQLite file per collection, models kept warm by a persistent daemon, all LLM outputs cached.
 
 ```bash
-brew install vlwkaos/tap/ir
+brew install vlwkaos/tap/ir          # macOS
+cargo install ir-search              # any platform (binary name: ir)
 ```
-
-**From source:**
 
 ```bash
-cargo install --path .
+ir collection add notes ~/notes      # register a collection
+ir sync notes                        # index text + embed vectors
+ir search "memory safety in rust"    # search (daemon auto-starts)
 ```
 
-Requires Rust 1.80+. On macOS, links llama.cpp with Metal automatically. On Linux, pass `--features llama-cuda`, `llama-rocm`, or `llama-vulkan` to enable GPU acceleration.
+BM25 search works with no models at all. Vector/hybrid search downloads models automatically from HuggingFace on first use. Requires Rust 1.80+ if building from source; Metal is linked automatically on macOS, and Linux GPU backends are opt-in (`--features llama-cuda|llama-rocm|llama-vulkan`).
 
-## Quick start
+## How it searches
 
-```bash
-ir collection add notes ~/notes   # register a collection
-ir sync notes                     # synchronize text index + vector embeddings
-ir search "memory safety in rust" # search (daemon auto-starts)
+```
+query → BM25 (instant) → strong signal? → done
+      → hybrid fusion 0.80·vec + 0.20·bm25 → strong signal? → done
+      → query expansion (lex/vec/hyde) → RRF → LLM rerank
 ```
 
-`ir sync` is the default maintenance command. It updates the text index, then embeds only content hashes without vectors. An unchanged collection does not load the embedding model. Use `ir update` for fast, model-free BM25-only indexing. `ir embed` remains available for vector repair and synchronizes the text index first.
+Each tier runs only when the previous one isn't confident, so easy queries stay at millisecond latency and hard queries get the full LLM treatment. Expander outputs and reranker scores are cached in SQLite — repeated queries skip inference entirely.
+
+## Measured quality (v0.17, nDCG@10)
+
+| Corpus | BM25 only | Hybrid fusion | Full pipeline |
+|---|---|---|---|
+| NFCorpus (en, 3.6k docs, 323 q) | 0.31 | 0.39 | 0.39 |
+| FiQA (en, 57.6k docs, 648 q) | 0.24 | 0.40 | — |
+| MIRACL-ko 50k sample (ko preprocessor, 213 q) | 0.73 | 0.92 | **0.96** |
+| Allganize RAG-eval-KO (ko, 1.4k pages, 298 q) | 0.70 | 0.69 | 0.72 |
+
+Hybrid fusion needs only the 300M embedder (~50–280ms/query warm). The full pipeline adds the expander + reranker on queries that escalate. Korean numbers require the `ko` preprocessor (see below) — without it Korean BM25 is near zero.
+
+## Versions at a glance
+
+- **≤ 0.15** — core pipeline, daemon, MCP, CJK preprocessors.
+- **0.16** — `ir sync` (one command for index + embed), self-healing incremental updates: deleted files are hard-removed and moved/restored content reuses cached vectors.
+- **0.17** — research infrastructure for graph-expanded retrieval and an optional HNSW ANN index, plus a much faster benchmark toolchain. **All of it is disabled by default and changes nothing about search behavior** — these are opt-in experiments, not baked-in features. Collection DBs gain two empty tables on first write; databases remain fully compatible in both directions with 0.16.
+
+## Documentation
 
 <details>
 <summary><strong>Models</strong></summary>
 
-Models are downloaded automatically from HuggingFace Hub on first use and cached in `~/.cache/huggingface/`. No manual setup required.
+Models download automatically from HuggingFace Hub on first use (cache: `~/.cache/huggingface/`). `HF_HUB_OFFLINE=1` disables downloads.
 
-| Model | HF Repo | Required for |
-|---|---|---|
-| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir sync`, `ir embed`, vector search, hybrid |
-| [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF) | `unsloth/Qwen3.5-0.8B-GGUF` | unified expand + rerank (optional) |
-| [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) | `unsloth/Qwen3.5-2B-GGUF` | unified expand + rerank (optional) |
-| [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` | reranking only (optional) |
-| [qmd-query-expansion 1.7B](https://huggingface.co/tobil/qmd-query-expansion-1.7B) | `tobil/qmd-query-expansion-1.7B` | expansion only (optional) |
-| [BGE-M3 568M](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF) | `ggml-org/bge-m3-Q8_0-GGUF` | Korean embedding alternative (optional) |
+| Model | Required for |
+|---|---|
+| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | vector / hybrid search |
+| [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | reranking (optional) |
+| [qmd-query-expansion 1.7B](https://huggingface.co/tobil/qmd-query-expansion-1.7B) | query expansion (optional) |
+| [BGE-M3](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF) | Korean-optimized embedding alternative |
 
-BM25 search works without any models. The default tier-2 path is the dedicated expander + reranker. `IR_COMBINED_MODEL` is opt-in for explicit combined-model experiments or testing.
-
-**Local models:**
+**Local models / overrides:**
 
 ```bash
 export IR_MODEL_DIRS="$HOME/my-models"
@@ -79,411 +71,128 @@ export IR_RERANKER_MODEL="$HOME/my-models/qwen3-reranker-0.6b-q8_0.gguf"
 export IR_EXPANDER_MODEL="$HOME/my-models/qmd-query-expansion-1.7B-q4_k_m.gguf"
 ```
 
-Combined mode is explicit-only:
-
-```bash
-export IR_COMBINED_MODEL="$HOME/local-models/Qwen3.5-2B-Q4_K_M.gguf"   # testing / experiments only
-```
-
-Search order: env → `IR_MODEL_DIRS` → `~/local-models/` → `~/.cache/ir/models/` → `~/.cache/qmd/models/` → HF Hub auto-download.
-
-`IR_*_MODEL` env vars accept a path to a `.gguf` file, a directory containing a known model file, or a HuggingFace repo ID (`owner/name`). Unrecognized values error immediately instead of silently loading the default.
-
-Known HF repo IDs: `ggml-org/embeddinggemma-300M-GGUF`, `ggml-org/bge-m3-Q8_0-GGUF`, `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF`, `tobil/qmd-query-expansion-1.7B`, `unsloth/Qwen3.5-0.8B-GGUF`, `unsloth/Qwen3.5-2B-GGUF`.
-
-Compatibility aliases: `QMD_EMBEDDING_MODEL`, `QMD_RERANKER_MODEL`, `QMD_EXPANDER_MODEL`, `QMD_MODEL_DIRS`.
+`IR_*_MODEL` accepts a `.gguf` path, a directory containing a known model, or a HuggingFace repo ID. Search order: env → `IR_MODEL_DIRS` → `~/local-models/` → `~/.cache/ir/models/` → HF Hub. `IR_COMBINED_MODEL` (single model for expand+rerank) is opt-in for experiments only. Switching embedding models requires `ir embed --force`.
 
 **Config directory:**
 
 ```bash
-export IR_CONFIG_DIR="~/vault/.config/ir"   # portable across machines
+export IR_CONFIG_DIR="~/vault/.config/ir"   # portable; supports ~ and $VAR
 ```
 
-`IR_CONFIG_DIR` sets the directory for config, collection DBs, and daemon files. Supports `~` and `$VAR` expansion, so the value is safe to use in MCP configs synced across machines. Precedence: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`.
+Precedence: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`.
 
-**GPU:**
-
-```bash
-IR_GPU_LAYERS=0 ir search "query"   # force CPU
-IR_GPU_LAYERS=32 ir search "query"  # partial offload
-```
+**GPU:** `IR_GPU_LAYERS=0` forces CPU; `IR_GPU_LAYERS=N` partial offload.
 
 </details>
 
 <details>
 <summary><strong>Usage</strong></summary>
 
-**Collections:**
+**Collections & indexing:**
 
 ```bash
 ir collection add notes ~/notes
-ir collection add code  ~/code
 ir collection ls
 ir collection rm notes
 ir status                    # index health per collection
+
+ir sync [notes] [--force]    # text index + embeddings (the default maintenance command)
+ir update [notes] [--force]  # text index only — fast, no models
+ir embed [notes] [--force]   # vector repair / re-embedding
 ```
 
-**Index and embed:**
-
-```bash
-ir sync                      # synchronize all collections and embeddings
-ir sync notes                # one collection
-ir sync notes --force        # rebuild text and regenerate vectors
-
-ir update                    # index all collections
-ir update notes              # one collection
-ir update notes --force      # full re-index from scratch
-
-ir embed                     # embed all unembedded documents
-ir embed notes --force       # re-embed everything
-```
+Indexing is incremental and content-addressed (SHA-256): only changed files are reprocessed, identical content is deduplicated, deleted files are removed, and moved/restored content reuses cached vectors without re-inference.
 
 **Search:**
 
 ```bash
-ir search "memory safety in rust"
-ir search "sqlite architecture" --mode bm25
-ir search "async patterns"     --mode vector
-ir search "error handling"     --mode hybrid -c notes --min-score 0.4
+ir search "memory safety in rust"                 # hybrid (default)
+ir search "sqlite architecture" --mode bm25       # no models
+ir search "async patterns" --mode vector
+ir search "error handling" -c notes --min-score 0.4
 
-# Output formats
-ir search "ownership" --json
-ir search "ownership" --md
-ir search "ownership" --files       # paths only
-ir search "ownership" --full        # include full document content in results
-ir search "ownership" --chunk       # include best-matching chunk text (vector results)
-ir search "ownership" --quiet       # suppress stderr (progress, logs) — for scripting
-
-# Filter by field (-f/--filter, repeatable; all clauses ANDed)
-ir search "design" -f "modified_at>=2026-01-01"
-ir search "design" -f "meta.tags=rust"
-ir search "design" -f "path~notes/"
-ir search "design" -f "modified_at>=2025-01-01" -f "meta.author=vlwkaos"
+ir search "ownership" --json | --md | --files | --full | --chunk | --quiet
+ir search "design" -f "modified_at>=2026-01-01" -f "meta.tags=rust"
 ```
+
+Filter clauses (`-f`, repeatable, ANDed): fields `path`, `modified_at`, `created_at`, `meta.<name>`; ops `=` `!=` `>` `>=` `<` `<=` `~` `!~`. Dates normalize to UTC RFC3339. Multi-valued frontmatter fields match if **any** element satisfies the clause (including `!=`).
 
 **Retrieve documents:**
 
 ```bash
-ir get "2026/Daily/04/2026-04-07.md"           # collection-relative path
-ir get "Notes/2026/Daily/04/2026-04-07.md"     # vault-root path (strips collection dir prefix)
-ir get "2026-04-07" -c periodic                # substring match, scoped to collection
-ir get "some/path.md" --json                   # full metadata as JSON
-ir get "some/path.md" --section "Installation" # extract named heading section only
-ir get "some/path.md" --max-chars 3000         # first 3000 chars
-ir get "some/path.md" --offset 1000 --max-chars 2000  # chars 1000–3000
-
-ir multi-get "file1.md" "file2.md" "file3.md"  # batch fetch
-ir multi-get "file1.md" "file2.md" --json       # {found: [...], not_found: [...]}
-ir multi-get "file1.md" "file2.md" --files      # paths only (found ones)
-ir multi-get "file1.md" "file2.md" --max-chars 2000  # truncate each doc
+ir get "2026/Daily/2026-04-07.md"              # exact → suffix → substring match
+ir get "2026-04-07" -c periodic --section "Log" --max-chars 3000
+ir multi-get "a.md" "b.md" --json               # {found, not_found}
 ```
-
-Path matching order: exact → suffix (`%/path`) → substring. Vault-root paths (where the first component matches the collection's directory name) are resolved before the normal match.
-
-**Filter syntax (`-f/--filter`):**
-
-Each clause is a string `FIELD OP VALUE`. Multiple `-f` flags are ANDed together.
-
-| Field | Description |
-|-------|-------------|
-| `path` | Document path (relative to collection root) |
-| `modified_at` | File modification time (UTC RFC3339) |
-| `created_at` | File creation time (UTC RFC3339) |
-| `meta.<name>` | Frontmatter field (e.g. `meta.tags`, `meta.author`) |
-
-| Op | Meaning |
-|----|---------|
-| `=` / `!=` | Equal / not equal (case-sensitive) |
-| `>` / `>=` / `<` / `<=` | Lexicographic compare (dates normalize to UTC RFC3339) |
-| `~` / `!~` | Contains / not-contains (case-insensitive) |
-
-Date values for `modified_at`, `created_at`, and `meta.date` are normalized to UTC RFC3339 (`YYYY-MM-DD` becomes `YYYY-MM-DDT00:00:00Z`). Multi-valued frontmatter fields (e.g. tag arrays) match if **any** element satisfies the clause — including `!=`. A doc tagged `["rust", "go"]` passes `meta.tags!=rust` because `"go"` satisfies the condition. Documents with no metadata rows always fail `meta.*` clauses.
-
-> **Note:** Collection DBs are upgraded to schema version 2 on first use after this release. The one-time backfill (populating `document_metadata` from existing frontmatter) is fast (<1s for <10k docs).
 
 **Daemon:**
 
 ```bash
-ir daemon start              # start (auto-started on first search)
-ir daemon stop
-ir daemon status
+ir daemon start|stop|status   # auto-starts on first search
 ```
 
-The daemon keeps models warm in memory. Subsequent queries over the Unix socket skip model loading entirely (~30ms round-trip vs 3s cold). On a cold start, `ir search` kicks off daemon startup immediately; if BM25 already found a usable answer, that first query can return the BM25 result while the daemon continues warming in the background.
+Warm queries round-trip the Unix socket in ~30ms. On a cold start the first query can return BM25 results immediately while models load in the background.
 
 </details>
 
 <details>
-<summary><strong>Incremental Indexing</strong></summary>
+<summary><strong>Korean / Japanese / Chinese preprocessors</strong></summary>
 
-IR efficiently handles updates by only processing changed files through content-addressed storage with SHA-256 hashing.
-
-**How it works:**
-
-- **Change detection**: Files are hashed (SHA-256) and compared against stored hashes
-- **Smart updates**: Only modified or new files are re-processed
-- **Deletion handling**: Removed document rows are deleted; returning paths are inserted normally
-- **Self-healing**: Legacy inactive rows are purged automatically during the next update
-- **Deduplication**: Identical content within a collection shares storage
-
-**Index operations:**
+CJK text needs morphological tokenization before BM25 — without it, agglutinated words never match morpheme-level queries (Korean BM25 goes from ~0.00 to useful). The same preprocessor runs at index and query time.
 
 ```bash
-# Regular incremental update (default)
-ir update                    # all collections
-ir update notes              # specific collection
-
-# Force full re-index from scratch
-ir update notes --force      # rebuilds entire index
-
-# Check what changed (see the summary)
-ir update notes
-# Output: "2 added, 1 updated, 0 deactivated"
+ir preprocessor install ko    # lindera + ko-dic (official binaries; macOS/Linux)
+ir preprocessor install ja    # lindera + ipadic
+ir preprocessor install zh    # lindera + jieba
+ir preprocessor bind ko wiki  # wire to a collection and re-index
 ```
 
-The summary retains `deactivated` as a compatibility label; those paths are now hard-deleted from `documents`.
+Binding `ko` also writes the measured Korean routing default (`fused_strong_product: 0.05`) to that collection; explicit `routing:` config always wins. Per-collection routing overrides (`fused_strong_floor/product`, `bm25_strong_floor/gap`) live in `config.yml` and apply when all searched collections agree.
 
-**Embedding operations:**
+Any executable can be a preprocessor: UTF-8 lines on stdin → 0-or-1 tokenized lines on stdout, stays alive between lines, passes ASCII-only single words through unchanged. Lindera throughput: ~5,600 Korean docs/s on M-series.
 
-```bash
-# Synchronize text and vectors in one command
-ir sync notes
+**Why it matters** (MIRACL-Korean):
 
-# Incremental embedding (only new/changed documents)
-ir embed                     # synchronizes text, then embeds pending content
-ir embed notes               # specific collection
-
-# Force re-embedding everything
-ir embed notes --force       # re-computes all vectors
-```
-
-**Performance characteristics:**
-
-- Initial indexing: fast (no models, pure text extraction)
-- Incremental updates: only processes changed files
-- Hash comparison: instant even for thousands of files
-- Embedding: slow first time, fast incremental updates
-
-**Example workflow:**
-
-```bash
-# Monday: initial setup
-ir collection add notes ~/notes
-ir sync notes                # indexes and embeds 500 files
-
-# Tuesday: added 3 files, modified 2
-ir sync notes                # updates 5 documents and embeds their new hashes
-
-# Wednesday: deleted 1 file
-ir sync notes                # removes the row; hash-addressed caches remain reusable
-```
-
-The incremental approach means you can run `ir update` frequently without performance penalty — only changed content is processed.
+| preprocessor | BM25 nDCG@10 |
+|---|---|
+| none | 0.00 |
+| lindera (`ko`) | 0.73 (50k-doc sample) |
 
 </details>
 
 <details>
 <summary><strong>MCP server — Claude Desktop / Claude Code</strong></summary>
 
-`ir mcp` runs a Model Context Protocol server so Claude can search your indexed documents directly.
-
-**Claude Desktop** (`~/.config/claude/claude_desktop_config.json`):
-
 ```json
-{
-  "mcpServers": {
-    "ir": {
-      "command": "ir",
-      "args": ["mcp"]
-    }
-  }
-}
+{ "mcpServers": { "ir": { "command": "ir", "args": ["mcp"] } } }
 ```
 
-**Claude Code** (`.mcp.json` in project root or `~/.claude/mcp.json`):
+Tools: `search` (with `mode`, `limit`, `min_score`, `collections`, `filter`), `get`, `multi_get`, `status`, `update`.
 
-```json
-{
-  "mcpServers": {
-    "ir": {
-      "command": "ir",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Five tools are exposed:
-
-| Tool | Description |
-|------|-------------|
-| `search` | Hybrid BM25+vector search. Returns path, title, score, snippet. Params: `mode`, `limit`, `min_score`, `collections`, `full` (include full doc text), `include_chunk` (include best-matching chunk text), `filter` (array of `{field, op, value}` objects, ANDed). |
-| `get` | Retrieve document text by path (exact → suffix → substring match). Params: `collections`, `section` (heading text, case-insensitive), `offset` (char offset), `max_chars` (truncate). |
-| `multi_get` | Batch document retrieval. Params: `paths[]`, `collections`, `max_chars` (truncate each doc). Returns `found` and `not_found`. |
-| `status` | Index health — collection names, doc counts, DB sizes, daemon status. |
-| `update` | Re-index collections after file changes. Accepts `collection` and `force` params. |
-
-The `filter` array accepts structured clauses: `{"field": "modified_at", "op": ">=", "value": "2024-01-01"}`. Fields: `path`, `modified_at`, `created_at`, `meta.<name>`. Ops: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~` (contains), `!~` (not-contains).
-
-**HTTP mode** (for remote access or multi-client setups):
+HTTP mode for remote/multi-client setups:
 
 ```bash
-ir mcp --http 3620                              # serve on all interfaces, port 3620
-ir mcp --http 3620 --cors '*'                   # allow any browser origin (wildcard)
-ir mcp --http 3620 --cors 'https://app.example.com'  # allow specific origin only
+ir mcp --http 3620 [--cors '*' | --cors 'https://app.example.com']
 ```
 
-Configure clients to point at `http://<host>:3620/mcp`. The daemon starts automatically on first search tool call.
-
-`--cors` sets `Access-Control-Allow-Origin` so browser-hosted clients (web apps, Claude.ai web) can connect. `--cors '*'` also disables rmcp's DNS-rebinding host check; use only on trusted networks. Omitting `--cors` emits no CORS headers (curl/CLI clients unaffected).
-
-> **Security note:** HTTP mode is unauthenticated and binds to all interfaces. Only expose it on trusted networks. The `update` tool can trigger re-indexing, so treat it like any other local write-access service.
+> HTTP mode is unauthenticated and binds all interfaces — trusted networks only.
 
 </details>
 
 <details>
-<summary><strong>Preprocessors — Korean / Japanese / Chinese</strong></summary>
+<summary><strong>Benchmarks & reproduction</strong></summary>
 
-Preprocessors tokenize text before BM25 indexing. Without one, agglutinated words ("이스탄불의", "東京都") are treated as single FTS tokens and never match morpheme-level queries. The same preprocessor runs at index time and query time.
-
-**Korean (lindera, Mode::Decompose):**
+All numbers above are reproducible with the shipped harness:
 
 ```bash
-ir preprocessor install ko          # downloads official lindera CLI + ko-dic, registers as "ko"
-                                    # shows collection picker to bind immediately
-ir collection add wiki ~/wiki       # add collection (if not yet added)
-ir preprocessor bind ko wiki        # wire "ko" to collection and re-index
-ir search "서울 지하철" -c wiki
+scripts/bench.sh nfcorpus            # full per-mode table, cached per git hash
+scripts/bench.sh miracl-ko --size 50000 --seed 42
+bash scripts/preship.sh              # stability / speed / quality gate on fixtures
 ```
 
-`ir preprocessor install ko` downloads the official lindera CLI binary and ko-dic dictionary from lindera's GitHub releases. Supported platforms: **macOS** (arm64, x86\_64) and **Linux** (x86\_64, aarch64). No system deps, no Rust toolchain required. The install step shows an interactive picker so you can bind to collections right away.
-Binding the built-in `ko` alias also writes the current Korean routing default for that collection:
+Runs are resumable (per-query progress survives crashes) and guarded by a memory watchdog on macOS. Historical BEIR results (older pipeline config): reranking added up to +14.5% nDCG@10 over pure vector on ArguAna; fusion alone was not significantly better than pure vector on English corpora — the reranker is where tier-2 value lives.
 
-```yaml
-routing:
-  fused_strong_product: 0.05
-```
-
-This is a bind-time default, not a hidden runtime special case. If you already set a `routing:` block yourself, that explicit config wins.
-
-**Per-collection routing overrides** (`config.yml`, optional):
-
-```yaml
-collections:
-  - name: wiki-ko
-    path: ~/wiki
-    preprocessor: [ko]
-    routing:
-      fused_strong_product: 0.05
-```
-
-Use this to override BM25/fused strong-signal thresholds for a specific collection. The fields are:
-
-- `fused_strong_floor`
-- `fused_strong_product`
-- `bm25_strong_floor`
-- `bm25_strong_gap`
-
-Overrides apply only when all searched collections agree on the same value. Mixed searches with conflicting overrides fall back to the global default thresholds.
-
-**Japanese:**
-
-```bash
-ir preprocessor install ja    # Japanese (Lindera + ipadic)
-```
-
-**Chinese (lindera + jieba, Mode::Decompose):**
-
-```bash
-ir preprocessor install zh          # downloads lindera CLI + jieba dict, registers as "zh"
-ir collection add notes ~/notes     # add collection
-ir preprocessor bind zh notes       # wire "zh" to collection and re-index
-ir search "机器学习" -c notes
-```
-
-`ir preprocessor install zh` downloads the official lindera CLI binary and jieba segmentation dictionary from lindera's GitHub releases (same binary as `ko`/`ja`, different dict). Supported platforms: **macOS** (arm64, x86\_64) and **Linux** (x86\_64, aarch64).
-
-Unlike `ko`, binding `zh` does **not** write a routing override — the global strong-signal thresholds apply. Add a collection-level `routing:` block if you observe too many or too few tier-1 escalations on your corpus.
-
-**Limitation:** No stopword filtering. Function words (的、了、在、是、…) are indexed as terms. BM25 precision is lower on function-word-heavy queries; hybrid+rerank compensates.
-
-**Manage:**
-
-```bash
-ir preprocessor list          # shows registered + available bundled preprocessors
-ir preprocessor remove ko     # unregister (keeps binary)
-ir preprocessor remove ko -d  # unregister and delete binary
-```
-
-The protocol is stdin/stdout line-by-line: one UTF-8 line in, zero or one tokenized line out (zero if all tokens are filtered), process stays alive between lines. The subprocess must pass ASCII-only single-word lines through unchanged — `ir` uses an internal sentinel token to detect when a line produces no output. Any executable following this protocol can be registered.
-
-Lindera throughput: ~5,600 Korean docs/s · 1.8 MB/s on M-series Mac. Near-zero cold start (Rust binary, embedded dictionary).
-
-**Korean BM25 benchmark** (MIRACL-Korean, 213 queries):
-
-| preprocessor | nDCG@10 | note |
-|---|---|---|
-| none | 0.0009 | agglutinated tokens never match |
-| lindera | 0.0460 | 50× gain from morphological tokenization |
-| lindera hybrid+rerank | **0.8411** | near-ceiling on 2,835 passages |
-
-Compound decompounding benchmark (50 queries targeting compound sub-components):
-
-| preprocessor | nDCG@10 | note |
-|---|---|---|
-| none | 0.0000 | sub-parts absent from FTS index |
-| lindera | **0.6326** | Mode::Decompose splits compounds |
-
-See [research/experiment.md](research/experiment.md) for full results and rationale.
-
-**Korean embedding models**: For Korean-optimized dense retrieval, [BGE-M3](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF) can replace the default embedding model via `IR_EMBEDDING_MODEL`. Filename auto-detection handles pooling and formatting. See [README.ko.md](README.ko.md) for setup. Switching models requires `ir embed --force` (vector dimensions auto-adapt).
-
-</details>
-
-<details>
-<summary><strong>Search Pipeline</strong></summary>
-
-```
-Query → BM25 probe → score fusion (0.80·vec + 0.20·bm25) → reranking
-```
-
-Strong-signal shortcut (BM25 score ≥ 0.75, gap ≥ 0.10) skips all LLM work.
-With expander: expand → lex/vec/hyde sub-queries → RRF → rerank top-20.
-All LLM outputs cached in SQLite — repeated queries skip inference entirely.
-
-See [research/pipeline.md](research/pipeline.md) for staged async daemon design.
-
-</details>
-
-<details>
-<summary><strong>Benchmark — BEIR (4 datasets, nDCG@10)</strong></summary>
-
-EmbeddingGemma 300M embeddings + qmd-expander-1.7B + Qwen3-Reranker-0.6B.
-
-| Dataset | BM25 | Vector | Hybrid | +Reranker | LLM gain |
-|---|---|---|---|---|---|
-| NFCorpus (323q) | 0.2046 | 0.3898 | 0.3954 | **0.4001** | +1.2% |
-| SciFact (300q) | 0.0500 | 0.7847 | 0.7873 | **0.7797** | −1.0% |
-| FiQA (648q) | 0.0298 | 0.4324 | 0.4266 | **0.4567** | +7.1% |
-| ArguAna (1406q) | 0.0012 | 0.4264 | 0.4263 | **0.4879** | +14.5% |
-
-BM25 fusion provides no statistically significant lift over pure vector (paired t-test). Reranker gains are largest on conversational/argument retrieval.
-
-See [research/experiment.md](research/experiment.md) for reproduction steps.
-`scripts/bench.sh <dataset>` prints a per-mode table (`bm25`, `vector`, `hybrid`) and caches the full JSON under `logs/results/<dataset>/`.
-For non-BM25 runs, the benchmark wrapper pins tier-2 to the dedicated expander + reranker path and restarts the benchmark daemon before scoring, so a local Qwen combined GGUF or stale daemon state does not silently change the benchmark pipeline.
-If a machine crash happens after prepare/index/embed but before scoring finishes, rerunning the same `scripts/bench.sh <dataset>` command resumes from the prepared collection instead of starting from zero. Query scoring also resumes automatically: `scripts/beir-eval.py run --output ...` writes per-query sidecar progress to `<output>.partial/` and continues from that on rerun.
-Large corpora can be benchmarked on a sampled pool with `--size N --seed N`. For MIRACL-Ko, `scripts/bench.sh miracl-ko --size 50000` is the current research default because `10000` docs proved stable but too saturated for meaningful ranking comparisons. The pool-size study still establishes `10000` as the minimum stable sampled benchmark.
-Maintainer shortcut: `scripts/research-harness.sh` wraps the supported research flows for baseline locking, signal collection, threshold sweeps, and automated holdout validation of shortlisted thresholds. For fine sweeps near a threshold cliff, `validate-thresholds` also accepts explicit fused values via `--products ...`. See [research/experiment.md](research/experiment.md).
-Current research direction:
-
-- keep `fiqa` on the current fused threshold
-- use `miracl-ko --size 50000` for Korean threshold research
-- prefer stricter fused gating before trying a learned router
-- treat router work as offline-only until it clearly beats simple gating on holdout
-
-Tier-2 router research is intentionally separate from that harness. First collect router-grade signals with `bash scripts/signal-sweep.sh --dataset miracl-ko --size 50000 --pools 3 --tier1`, then use `bash scripts/router-data.sh ko` to prepare a Korean-only `smoltrain` bundle. The router benchmark itself also stays offline by default: collect holdout signals for `miracl-ko-s50000-p42`, then score the checkpoint with `scripts/router-bench.py` instead of changing the shipped runtime path.
-On macOS, `scripts/bench.sh` now runs long benchmark phases under a safety watchdog by default. Metal stays enabled for speed, but the wrapper aborts the run if free memory drops too low, swapouts begin, or `ir` sustains CPU-fallback-like usage. Tune with `IR_BENCH_MIN_FREE_PCT`, `IR_BENCH_MAX_IR_CPU_PCT`, `IR_BENCH_CPU_STRIKES`, or disable with `IR_BENCH_GUARD=0`.
+v0.17 ships experimental, **off-by-default** research infrastructure explored on these corpora: a document-similarity graph used to widen the reranker's candidate pool (significant on sparse-result corpora), and an optional HNSW index (usearch) for approximate kNN that reached 99.2% top-10 overlap with exact search at nDCG@10 identical to exact (MIRACL-ko 50k validation). These change no default behavior; see `CHANGELOG.md` for details and measured results.
 
 </details>
 
@@ -494,58 +203,26 @@ ir is a Rust port of [qmd](https://github.com/tobi/qmd) with a different storage
 
 | | qmd | ir |
 |---|---|---|
-| Storage | Single SQLite for all collections | Per-collection SQLite — `rm name.sqlite` to delete |
-| Concurrent writes | Shared WAL journal | Independent WAL per collection |
-| sqlite-vec | Dynamically loaded `.so` | Statically compiled in |
-| Process model | Spawns per query | Daemon keeps models warm |
-| LLM cache | Reranker scores (per-collection) | Reranker scores + expander outputs (global) |
-| Quality (NFCorpus nDCG@10) | No published numbers | 0.4001 |
-
-**Performance** (macOS M4 Max, same models and query):
-
-| | ir | qmd | Ratio |
-|---|---:|---:|---|
-| **Cold** (no cache) | 3.0s | 9.5s | **3×** |
-| **Warm** (daemon + caches hot) | 30ms | 840ms | **28×** |
-
-Cold difference: ir caps reranking at 20 candidates vs qmd's 40. Warm difference: qmd pays ~800ms process spawn + JS runtime per invocation; ir's daemon round-trip is 30ms (embed + kNN only).
+| Storage | single SQLite | per-collection SQLite (`rm name.sqlite` deletes) |
+| Process model | spawn per query | daemon keeps models warm |
+| LLM cache | reranker scores | reranker scores + expander outputs |
+| Cold / warm query (M4 Max) | 9.5s / 840ms | **3.0s / 30ms** |
 
 </details>
 
 <details>
-<summary><strong>Development</strong></summary>
+<summary><strong>Development & schema</strong></summary>
 
 ```bash
-cargo build                  # debug build
-cargo build --release        # release build
-cargo test                   # unit tests (no models required)
-cargo test -- --ignored      # model-dependent tests (requires models)
-cargo run --bin eval -- --data test-data/nfcorpus --mode all
+cargo build [--release]
+cargo test                   # no models required
+cargo test -- --ignored      # model-dependent tests
 ```
+
+Per-collection schema: `content` (hash → text), `documents`, `documents_fts` (FTS5), `vectors_vec` (sqlite-vec, cosine), `content_vectors` (chunk metadata), `llm_cache` (reranker scores), `document_metadata` (frontmatter), `meta` — plus empty-by-default research tables (`doc_graph`, `ann_keys`) as of 0.17. Global `expander_cache.sqlite` caches expansion outputs. See [research/pipeline.md](research/pipeline.md) for the staged-async daemon design.
 
 </details>
 
-<details>
-<summary><strong>Schema</strong></summary>
+## License
 
-Each collection database (`~/.config/ir/collections/<name>.sqlite`):
-
-```
-content          — hash → full text (content-addressed)
-documents        — path, title, hash, compatibility active flag
-documents_fts    — FTS5 virtual table (porter tokenizer)
-vectors_vec      — sqlite-vec kNN (768d cosine, EmbeddingGemma format)
-content_vectors  — chunk metadata (hash, seq, pos, model)
-llm_cache        — reranker score cache (sha256(model+query+doc) → score)
-meta             — collection metadata (name, schema version)
-```
-
-Global cache (`~/.config/ir/expander_cache.sqlite`):
-
-```
-expander_cache   — sha256(model+query) → JSON Vec<SubQuery>
-```
-
-Triggers keep `documents_fts` in sync with `documents` on insert/update/delete.
-
-</details>
+[MIT](LICENSE)

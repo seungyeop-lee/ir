@@ -23,7 +23,11 @@ const DEFAULT_LAMBDA: f64 = 0.2;
 fn env_f64(name: &str, default: f64) -> f64 {
     std::env::var(name)
         .ok()
-        .and_then(|v| v.parse().ok())
+        .and_then(|v| v.parse::<f64>().ok())
+        // Reject NaN/±inf: a non-finite γ/λ propagates into scores and
+        // SearchResult::sort_desc treats NaN compares as Equal, silently
+        // scrambling rank order instead of failing a sweep loudly.
+        .filter(|v| v.is_finite())
         .unwrap_or(default)
 }
 
@@ -34,14 +38,7 @@ fn env_usize(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-fn env_flag(name: &str) -> bool {
-    std::env::var(name).ok().is_some_and(|raw| {
-        matches!(
-            raw.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
-}
+use crate::config::env_flag;
 
 pub fn t0_expand_enabled() -> bool {
     env_flag("IR_GRAPH_T0_EXPAND")

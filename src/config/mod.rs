@@ -155,6 +155,18 @@ pub fn ir_dir() -> PathBuf {
         .join("ir")
 }
 
+/// Parse a boolean env flag: true for `1`/`true`/`yes`/`on` (case-insensitive).
+/// Shared so every research flag (`IR_GRAPH_*`, `IR_ANN`, `IR_GRAPH_BUILD`) parses
+/// identically — a mismatch across call sites produces quietly wrong A/B sweeps.
+pub fn env_flag(name: &str) -> bool {
+    std::env::var(name).ok().is_some_and(|raw| {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
 /// Expand `~` and `$VAR`/`${VAR}` in a path string.
 ///
 /// - Leading `~` or `~/` is replaced with the user's home directory.

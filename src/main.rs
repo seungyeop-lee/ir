@@ -1195,15 +1195,14 @@ fn handle_sync_phases(
 /// Reads stored chunk embeddings only — no model inference; safe on
 /// already-embedded collections (embed no-op still triggers a rebuild).
 fn maybe_build_graph(db: &db::CollectionDb) -> Result<()> {
-    if !matches!(
-        std::env::var("IR_GRAPH_BUILD").ok().as_deref(),
-        Some("1") | Some("true") | Some("yes") | Some("on")
-    ) {
+    if !config::env_flag("IR_GRAPH_BUILD") {
         return Ok(());
     }
+    // Cap k so fetch_m(k) = (k+2)*3+8 can't overflow on a fat-fingered sweep value.
     let k = std::env::var("IR_GRAPH_K")
         .ok()
-        .and_then(|v| v.parse().ok())
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|v| v.clamp(1, 1024))
         .unwrap_or(10);
     println!("building doc graph for '{}' (k={k})…", db.name);
     let (docs, edges) = db::graph::build(db.conn(), k)?;

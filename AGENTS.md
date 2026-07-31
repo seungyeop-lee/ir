@@ -70,7 +70,7 @@ Results cached at `logs/results/{dataset}/{git7}.json` (gitignored).
 | `IR_ANN` | unset | Research: `hnsw` enables the usearch ANN sidecar for vector kNN (exact fallback when stale/absent) |
 | `IR_ANN_M` | `16` | Research: HNSW connectivity (usearch `connectivity`) |
 | `IR_ANN_EF_CONSTRUCTION` | `200` | Research: HNSW build-time expansion |
-| `IR_ANN_EF` | `96` | Research: HNSW search-time expansion (recall knob; 99.91% top-10 overlap at default on 50k) |
+| `IR_ANN_EF` | `200` | Research: HNSW search-time expansion (recall knob; 99.2% top-10 overlap, nDCG@10 = exact at default on 50k) |
 | `IR_BENCH_MAX_SWAPOUT_DELTA` | `0` | Research: bench watchdog tolerance for system swapouts before abort (bench-env.sh) |
 
 Config dir precedence: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`

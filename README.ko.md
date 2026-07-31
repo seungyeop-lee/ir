@@ -1,91 +1,68 @@
 # ir
 
+[![crates.io](https://img.shields.io/crates/v/ir-search.svg)](https://crates.io/crates/ir-search)
+[![CI](https://github.com/vlwkaos/ir/actions/workflows/ci.yml/badge.svg)](https://github.com/vlwkaos/ir/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 [ENG](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
-마크다운 지식베이스를 위한 로컬 시맨틱 검색 엔진. [qmd](https://github.com/tobi/qmd)의 Rust 포트, 세 가지 핵심 차이점:
-
-- **컬렉션별 SQLite** — 각 컬렉션이 독립 파일; 공유 전역 인덱스 없음
-- **퍼시스턴트 데몬** — 모델이 쿼리 사이에 메모리에 상주; 첫 검색 시 자동 시작
-  차가운 첫 쿼리는 데몬이 뒤에서 예열되는 동안 BM25 결과를 먼저 돌려줄 수 있다.
-- **이중 LLM 캐시** — 확장기 출력과 재순위 점수 영속화; 반복 쿼리는 즉각 반환
-
-4개 BEIR 데이터셋 기준 검색 품질 측정; 재순위화로 순수 벡터 대비 최대 +14.5% nDCG@10.
-
-<details>
-<summary><strong>기능</strong></summary>
-
-- **하이브리드 검색** — BM25 탐색 → 점수 융합 (0.80·벡터 + 0.20·BM25) → LLM 재순위화
-- **쿼리 확장** — 확장기 모델 존재 시 lex/vec/hyde 타입 서브쿼리 생성
-- **강신호 단축** — BM25 최고점 ≥ 0.75 AND 차이 ≥ 0.10이면 즉시 반환
-- **데몬 모드** — 쿼리 사이에 모델 상주; 첫 검색 시 자동 시작
-  cold start라도 첫 useful BM25 결과를 막지 않는다.
-- **이중 LLM 캐시** — 확장기 출력 전역 캐시; 재순위 점수 컬렉션별 캐시
-- **컬렉션별 SQLite** — 독립 WAL 저널, 격리 백업, 컬렉션 간 경합 없음
-- **내용 주소 저장** — SHA-256으로 동일 파일 중복 제거
-- **FTS5 인젝션 안전** — 모든 사용자 입력 FTS5 쿼리 생성 전 이스케이프
-- **GPU 가속** — macOS에서는 Metal 기본 사용, Linux에서는 CUDA/ROCm/Vulkan 선택 가능 (feature 플래그); `IR_GPU_LAYERS=N`으로 조정
-- **자동 다운로드** — 첫 사용 시 HuggingFace Hub에서 모델 자동 다운로드
-
-</details>
-
-## 설치
-
-**Homebrew (macOS):**
+마크다운 지식베이스를 위한 로컬 시맨틱 검색. BM25 + 벡터 + LLM 재순위화를 전부 로컬 머신에서 수행 — 컬렉션당 SQLite 파일 하나, 퍼시스턴트 데몬이 모델을 메모리에 상주시키고, 모든 LLM 출력은 캐시된다.
 
 ```bash
-brew tap vlwkaos/tap
-brew install ir
+brew install vlwkaos/tap/ir          # macOS
+cargo install ir-search              # 모든 플랫폼 (바이너리 이름: ir)
 ```
-
-**소스에서 빌드:**
 
 ```bash
-cargo install --path .
+ir collection add notes ~/notes      # 컬렉션 등록
+ir sync notes                        # 텍스트 인덱스 + 벡터 임베딩
+ir search "러스트 메모리 안전성"     # 검색 (데몬 자동 시작)
 ```
 
-Rust 1.80 이상 필요. macOS에서 llama.cpp가 Metal과 자동 링크됩니다. Linux에서는 `--features llama-cuda`, `llama-rocm`, `llama-vulkan` 중 하나를 지정해 GPU를 활성화할 수 있습니다.
+BM25 검색은 모델 없이 동작한다. 벡터/하이브리드 검색은 첫 사용 시 HuggingFace에서 모델을 자동 다운로드한다. 소스 빌드는 Rust 1.80+ 필요; macOS에서는 Metal이 자동 링크되고, Linux GPU 백엔드는 opt-in (`--features llama-cuda|llama-rocm|llama-vulkan`).
 
-## 빠른 시작
+## 검색 동작 방식
 
-```bash
-ir collection add notes ~/notes   # 컬렉션 등록
-ir sync notes                     # 텍스트 인덱스 + 벡터 임베딩 동기화
-ir search "러스트 메모리 안전성"  # 검색 (데몬 자동 시작)
+```
+쿼리 → BM25 (즉시) → 강신호? → 종료
+     → 하이브리드 융합 0.80·벡터 + 0.20·bm25 → 강신호? → 종료
+     → 쿼리 확장 (lex/vec/hyde) → RRF → LLM 재순위화
 ```
 
-`ir sync`가 기본 유지보수 명령입니다. 텍스트 인덱스를 갱신한 뒤 벡터가 없는 콘텐츠 해시만 임베딩합니다. 변경 사항이 없으면 임베딩 모델을 로드하지 않습니다. 모델 없이 BM25만 빠르게 갱신하려면 `ir update`를 사용합니다. 벡터 복구용 `ir embed`도 먼저 텍스트 인덱스를 증분 동기화합니다.
+각 티어는 이전 티어의 결과가 확실하지 않을 때만 실행된다. 쉬운 쿼리는 밀리초 수준 지연에 머물고, 어려운 쿼리만 전체 LLM 파이프라인을 거친다. 확장기 출력과 재순위 점수는 SQLite에 캐시되어 반복 쿼리는 추론을 완전히 건너뛴다.
 
-**한국어/일본어/중국어 컬렉션:**
+## 측정된 품질 (v0.17, nDCG@10)
 
-```bash
-ir preprocessor install ko        # 공식 lindera CLI + ko-dic 다운로드, "ko" 등록
-                                  # 설치 후 컬렉션 바인딩 피커 표시
+| 코퍼스 | BM25 단독 | 하이브리드 융합 | 전체 파이프라인 |
+|---|---|---|---|
+| NFCorpus (en, 3.6k 문서, 323 쿼리) | 0.31 | 0.39 | 0.39 |
+| FiQA (en, 57.6k 문서, 648 쿼리) | 0.24 | 0.40 | — |
+| MIRACL-ko 50k 샘플 (ko 전처리기, 213 쿼리) | 0.73 | 0.92 | **0.96** |
+| Allganize RAG-eval-KO (ko, 1.4k 페이지, 298 쿼리) | 0.70 | 0.69 | 0.72 |
 
-ir collection add wiki ~/wiki     # 컬렉션이 없는 경우 추가
-ir preprocessor bind ko wiki      # "ko"를 컬렉션에 연결하고 재인덱싱
+하이브리드 융합은 300M 임베더만 필요하다 (웜 기준 쿼리당 ~50–280ms). 전체 파이프라인은 에스컬레이션되는 쿼리에 한해 확장기 + 재순위기를 추가한다. 한국어 수치는 `ko` 전처리기가 전제다 (아래 참고) — 없으면 한국어 BM25는 거의 0이다.
 
-ir search "서울 지하철" -c wiki
-```
+## 버전 한눈에 보기
 
-전처리기 없이는 "이스탄불의", "検索エンジン" 같은 교착어가 하나의 FTS 토큰으로 처리되어 형태소 단위 검색이 불가합니다.
+- **≤ 0.15** — 코어 파이프라인, 데몬, MCP, CJK 전처리기.
+- **0.16** — `ir sync` (인덱스 + 임베딩 단일 명령), 자가 복구 증분 업데이트: 삭제된 파일은 완전히 제거되고, 이동/복원된 콘텐츠는 캐시된 벡터를 재사용.
+- **0.17** — graph-expanded retrieval 연구 인프라와 선택적 HNSW ANN 인덱스, 대폭 빨라진 벤치마크 툴체인. **전부 기본 비활성화이며 검색 동작을 전혀 바꾸지 않는다** — opt-in 실험이지 내장 기능이 아니다. 컬렉션 DB에는 첫 쓰기 시 빈 테이블 2개가 추가되며, 0.16과 양방향으로 완전 호환.
+
+## 문서
 
 <details>
 <summary><strong>모델</strong></summary>
 
-모델은 첫 사용 시 HuggingFace Hub에서 자동으로 다운로드되어 `~/.cache/huggingface/`에 캐시됩니다. 별도 설정 불필요.
+모델은 첫 사용 시 HuggingFace Hub에서 자동 다운로드된다 (캐시: `~/.cache/huggingface/`). `HF_HUB_OFFLINE=1`로 다운로드를 비활성화한다.
 
-| 모델 | HF 저장소 | 필요 기능 |
-|---|---|---|
-| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | `ggml-org/embeddinggemma-300M-GGUF` | `ir sync`, `ir embed`, 벡터 검색, 하이브리드 |
-| [Qwen3.5-0.8B](https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF) | `unsloth/Qwen3.5-0.8B-GGUF` | 통합 확장+재순위 (선택) |
-| [Qwen3.5-2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF) | `unsloth/Qwen3.5-2B-GGUF` | 통합 확장+재순위 (선택) |
-| [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | `ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` | 재순위화 전용 (선택) |
-| [qmd-query-expansion 1.7B](https://huggingface.co/tobil/qmd-query-expansion-1.7B) | `tobil/qmd-query-expansion-1.7B` | 쿼리 확장 전용 (선택) |
-| [BGE-M3 568M](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF) | `ggml-org/bge-m3-Q8_0-GGUF` | 한국어 임베딩 대안 (선택) |
+| 모델 | 필요 기능 |
+|---|---|
+| [EmbeddingGemma 300M](https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF) | 벡터 / 하이브리드 검색 |
+| [Qwen3-Reranker 0.6B](https://huggingface.co/ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF) | 재순위화 (선택) |
+| [qmd-query-expansion 1.7B](https://huggingface.co/tobil/qmd-query-expansion-1.7B) | 쿼리 확장 (선택) |
+| [BGE-M3](https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF) | 한국어 최적화 임베딩 대안 |
 
-BM25 검색은 모델 없이 동작합니다. 기본 tier-2 경로는 전용 확장기 + 재순위기입니다. `IR_COMBINED_MODEL`은 통합 모델 실험이나 테스트를 할 때만 명시적으로 사용합니다.
-
-**로컬 모델:**
+**로컬 모델 / 오버라이드:**
 
 ```bash
 export IR_MODEL_DIRS="$HOME/my-models"
@@ -94,38 +71,24 @@ export IR_RERANKER_MODEL="$HOME/my-models/qwen3-reranker-0.6b-q8_0.gguf"
 export IR_EXPANDER_MODEL="$HOME/my-models/qmd-query-expansion-1.7B-q4_k_m.gguf"
 ```
 
-통합 모드는 명시적으로만 사용합니다:
-
-```bash
-export IR_COMBINED_MODEL="$HOME/local-models/Qwen3.5-2B-Q4_K_M.gguf"   # 테스트 / 실험 전용
-```
-
-탐색 순서: 환경변수 → `IR_MODEL_DIRS` → `~/local-models/` → `~/.cache/ir/models/` → `~/.cache/qmd/models/` → HF Hub 자동 다운로드.
-
-`IR_*_MODEL` 환경변수는 `.gguf` 파일 경로, 모델이 포함된 디렉터리 경로, 또는 HuggingFace 레포 ID(`owner/name`)를 허용합니다. 인식되지 않는 값은 기본 모델을 조용히 로드하는 대신 즉시 오류를 출력합니다.
+`IR_*_MODEL`은 `.gguf` 파일 경로, 알려진 모델이 들어 있는 디렉터리, 또는 HuggingFace 레포 ID를 허용한다. 탐색 순서: 환경변수 → `IR_MODEL_DIRS` → `~/local-models/` → `~/.cache/ir/models/` → HF Hub. `IR_COMBINED_MODEL`(확장+재순위 단일 모델)은 실험 전용 opt-in. 임베딩 모델을 바꾸면 `ir embed --force`가 필요하다.
 
 **설정 디렉터리:**
 
 ```bash
-export IR_CONFIG_DIR="~/vault/.config/ir"   # 다른 기기에서도 동일하게 사용 가능
+export IR_CONFIG_DIR="~/vault/.config/ir"   # 이식 가능; ~ 및 $VAR 확장 지원
 ```
 
-`IR_CONFIG_DIR`은 설정 파일, 컬렉션 DB, 데몬 파일이 저장되는 디렉터리를 지정합니다. `~` 및 `$VAR` 확장을 지원하여 여러 기기에 동기화되는 MCP 설정에서도 안전하게 사용할 수 있습니다. 우선순위: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`.
+우선순위: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`.
 
-**GPU:**
-
-```bash
-IR_GPU_LAYERS=0 ir search "쿼리"    # CPU 강제
-IR_GPU_LAYERS=32 ir search "쿼리"   # 부분 오프로드
-```
+**GPU:** `IR_GPU_LAYERS=0`은 CPU 강제, `IR_GPU_LAYERS=N`은 부분 오프로드.
 
 </details>
 
 <details>
-<summary><strong>한국어 임베딩 모델</strong></summary>
+<summary><strong>한국어 임베딩 (BGE-M3)</strong></summary>
 
-기본 EmbeddingGemma (300M, 768d)로 하이브리드+재순위 시 MIRACL-Korean nDCG@10 = 0.8411.
-한국어 특화 dense retrieval이 필요하면 BGE-M3를 대체 모델로 사용할 수 있습니다.
+기본 EmbeddingGemma로도 한국어 하이브리드+재순위 성능은 충분히 높지만, 한국어 특화 dense retrieval이 필요하면 BGE-M3를 대체 임베더로 사용할 수 있다.
 
 | | EmbeddingGemma | BGE-M3 |
 |---|---|---|
@@ -145,451 +108,150 @@ export IR_EMBEDDING_MODEL="$HOME/local-models/bge-m3-Q8_0.gguf"
 ir embed <collection> --force
 ```
 
-파일명에 "bge-m3"가 포함되면 CLS 풀링 및 쿼리 프리픽스가 자동 적용됩니다.
-모델 변경 후 `ir embed --force`를 실행하면 벡터 테이블 차원이 자동으로 조정됩니다.
+파일명에 "bge-m3"가 포함되면 CLS 풀링과 쿼리 프리픽스가 자동 적용되고, `ir embed --force` 시 벡터 테이블 차원도 자동 조정된다.
 
-**KURE-v1 (실험적):** MTEB-ko Recall@1 = 0.5264 (dense only). BGE-M3 기반이지만 GGUF 변환이 검증되지 않았습니다. llama.cpp의 `convert_hf_to_gguf.py`로 직접 변환이 필요합니다.
-
-**참고:** 한국어 쿼리 확장(expander)은 비권장 -- 영어 SFT 모델이라 MIRACL-Korean에서 -0.4% 성능 저하.
+**참고:** 한국어 쿼리 확장(expander)은 비권장 — 영어 SFT 모델이라 MIRACL-Korean에서 오히려 성능이 소폭 저하된다. KURE-v1은 GGUF 변환이 검증되지 않아 실험적 (llama.cpp `convert_hf_to_gguf.py`로 직접 변환 필요).
 
 </details>
 
 <details>
 <summary><strong>사용법</strong></summary>
 
-**컬렉션:**
+**컬렉션 및 인덱싱:**
 
 ```bash
 ir collection add notes ~/notes
-ir collection add code  ~/code
 ir collection ls
 ir collection rm notes
 ir status                    # 컬렉션별 인덱스 상태
+
+ir sync [notes] [--force]    # 텍스트 인덱스 + 임베딩 (기본 유지보수 명령)
+ir update [notes] [--force]  # 텍스트 인덱스만 — 빠름, 모델 불필요
+ir embed [notes] [--force]   # 벡터 복구 / 재임베딩
 ```
 
-**인덱싱 및 임베딩:**
-
-```bash
-ir sync                      # 모든 컬렉션과 임베딩 동기화
-ir sync notes                # 특정 컬렉션
-ir sync notes --force        # 텍스트와 벡터 모두 재구축
-
-ir update                    # 모든 컬렉션 인덱싱
-ir update notes              # 특정 컬렉션
-ir update notes --force      # 전체 재인덱싱
-
-ir embed                     # 미임베딩 문서 임베딩
-ir embed notes --force       # 전체 재임베딩
-```
+인덱싱은 증분·내용 주소 방식(SHA-256)이다. 변경된 파일만 재처리하고, 동일 콘텐츠는 중복 제거하며, 삭제된 파일은 제거하고, 이동/복원된 콘텐츠는 재추론 없이 캐시된 벡터를 재사용한다.
 
 **검색:**
 
 ```bash
-ir search "러스트 메모리 안전성"
-ir search "sqlite 아키텍처"    --mode bm25
-ir search "비동기 패턴"        --mode vector
-ir search "에러 처리"          --mode hybrid -c notes --min-score 0.4
+ir search "러스트 메모리 안전성"                    # 하이브리드 (기본)
+ir search "sqlite 아키텍처" --mode bm25            # 모델 불필요
+ir search "비동기 패턴" --mode vector
+ir search "에러 처리" -c notes --min-score 0.4
 
-# 출력 형식
-ir search "소유권" --json
-ir search "소유권" --md
-ir search "소유권" --files       # 경로만
-ir search "소유권" --full        # 결과에 문서 전문 포함
-ir search "소유권" --chunk       # 가장 관련성 높은 청크 텍스트 포함 (벡터 결과)
-ir search "소유권" --quiet       # stderr 억제 (진행 표시, 로그) — 스크립팅용
-
-# 필터 (-f/--filter, 반복 가능; 모든 조건 AND)
-ir search "설계" -f "modified_at>=2026-01-01"
-ir search "설계" -f "meta.tags=rust"
-ir search "설계" -f "path~notes/"
-ir search "설계" -f "modified_at>=2025-01-01" -f "meta.author=vlwkaos"
+ir search "소유권" --json | --md | --files | --full | --chunk | --quiet
+ir search "설계" -f "modified_at>=2026-01-01" -f "meta.tags=rust"
 ```
+
+필터 절(`-f`, 반복 가능, AND 결합): 필드 `path`, `modified_at`, `created_at`, `meta.<name>`; 연산자 `=` `!=` `>` `>=` `<` `<=` `~` `!~`. 날짜는 UTC RFC3339로 정규화된다. 배열 프론트매터 필드는 **어느 한** 요소라도 조건을 만족하면 일치로 처리된다 (`!=` 포함).
 
 **문서 조회:**
 
 ```bash
-ir get "2026/Daily/04/2026-04-07.md"            # 컬렉션 상대 경로
-ir get "Notes/2026/Daily/04/2026-04-07.md"      # 볼트 루트 경로 (컬렉션 디렉토리명 접두사 자동 제거)
-ir get "2026-04-07" -c periodic                  # 부분 일치, 컬렉션 지정
-ir get "some/path.md" --json                     # JSON으로 전체 메타데이터 출력
-ir get "some/path.md" --section "설치"           # 해당 헤딩 섹션만 추출 (대소문자 무관)
-ir get "some/path.md" --max-chars 3000           # 앞 3000자만 반환
-ir get "some/path.md" --offset 1000 --max-chars 2000  # 1000~3000번째 문자
-
-ir multi-get "file1.md" "file2.md" "file3.md"   # 일괄 조회
-ir multi-get "file1.md" "file2.md" --json        # {found: [...], not_found: [...]}
-ir multi-get "file1.md" "file2.md" --files       # 찾은 경로만 출력
-ir multi-get "file1.md" "file2.md" --max-chars 2000  # 각 문서 잘라서 반환
+ir get "2026/Daily/2026-04-07.md"              # 정확 → 접미 → 부분 일치
+ir get "2026-04-07" -c periodic --section "Log" --max-chars 3000
+ir multi-get "a.md" "b.md" --json               # {found, not_found}
 ```
-
-경로 매칭 순서: 정확 일치 → 접미 일치(`%/path`) → 부분 문자열. 볼트 루트 경로(첫 번째 구성 요소가 컬렉션 디렉토리명과 일치하는 경우)는 일반 매칭 전에 먼저 처리됩니다.
-
-**필터 문법 (`-f/--filter`):**
-
-각 조건은 `FIELD OP VALUE` 형식입니다. 여러 `-f`는 AND로 결합됩니다.
-
-| 필드 | 설명 |
-|------|------|
-| `path` | 문서 경로 (컬렉션 루트 기준) |
-| `modified_at` | 파일 수정 시간 (UTC RFC3339) |
-| `created_at` | 파일 생성 시간 (UTC RFC3339) |
-| `meta.<name>` | 프론트매터 필드 (예: `meta.tags`, `meta.author`) |
-
-| 연산자 | 의미 |
-|--------|------|
-| `=` / `!=` | 동일 / 다름 (대소문자 구분) |
-| `>` / `>=` / `<` / `<=` | 사전식 비교 (날짜는 UTC RFC3339로 정규화) |
-| `~` / `!~` | 포함 / 미포함 (대소문자 무관) |
-
-날짜 값(`modified_at`, `created_at`, `meta.date`)은 UTC RFC3339로 정규화됩니다 (`YYYY-MM-DD` → `YYYY-MM-DDT00:00:00Z`). 배열 프론트매터 필드(태그 등)는 **어느 한** 요소가 조건을 만족하면 일치로 처리됩니다 — `!=`도 마찬가지입니다. `["rust", "go"]`로 태그된 문서는 `"go"`가 조건을 만족하므로 `meta.tags!=rust`에 매칭됩니다. `meta.*` 절은 메타데이터 행이 없는 문서에서 항상 실패합니다.
-
-> **참고:** 이번 릴리즈 이후 첫 사용 시 DB 스키마가 버전 2로 업그레이드됩니다. 기존 프론트매터에서 `document_metadata`를 채우는 일회성 작업이 실행되며, 10,000개 미만 문서 기준 1초 이내에 완료됩니다.
 
 **데몬:**
 
 ```bash
-ir daemon start              # 시작 (첫 검색 시 자동 시작)
-ir daemon stop
-ir daemon status
+ir daemon start|stop|status   # 첫 검색 시 자동 시작
 ```
 
-데몬은 모델을 메모리에 유지합니다. Unix 소켓을 통한 후속 쿼리는 모델 로딩을 건너뜁니다 (약 30ms 응답).
+웜 쿼리는 Unix 소켓 왕복 ~30ms. 콜드 스타트에서는 모델이 백그라운드에서 로드되는 동안 첫 쿼리가 BM25 결과를 즉시 반환할 수 있다.
 
 </details>
 
 <details>
-<summary><strong>증분 인덱싱</strong></summary>
+<summary><strong>한국어 / 일본어 / 중국어 전처리기</strong></summary>
 
-IR은 SHA-256 해싱을 사용한 콘텐츠 주소 저장소를 통해 변경된 파일만 효율적으로 처리합니다.
-
-**작동 방식:**
-
-- **변경 감지**: 파일을 해시(SHA-256)하여 저장된 해시와 비교
-- **스마트 업데이트**: 수정되거나 새로운 파일만 재처리
-- **삭제 처리**: 제거된 문서 행을 삭제하며, 같은 경로가 돌아오면 정상적으로 다시 추가
-- **자동 복구**: 이전 버전의 비활성 행을 다음 업데이트에서 자동 삭제
-- **중복 제거**: 컬렉션 내 동일한 콘텐츠는 저장소 공유
-
-**인덱스 작업:**
+CJK 텍스트는 BM25 이전에 형태소 토큰화가 필요하다 — 없으면 교착어 형태가 형태소 단위 쿼리와 전혀 매칭되지 않는다 (한국어 BM25가 ~0.00에서 실용 수준으로 상승). 인덱싱 시와 쿼리 시 동일한 전처리기가 적용된다.
 
 ```bash
-# 일반 증분 업데이트 (기본값)
-ir update                    # 모든 컬렉션
-ir update notes              # 특정 컬렉션
-
-# 처음부터 전체 재인덱싱 강제
-ir update notes --force      # 전체 인덱스 재구축
-
-# 변경 사항 확인 (요약 확인)
-ir update notes
-# 출력: "2 added, 1 updated, 0 deactivated"
+ir preprocessor install ko    # lindera + ko-dic (공식 바이너리; macOS/Linux)
+ir preprocessor install ja    # lindera + ipadic
+ir preprocessor install zh    # lindera + jieba
+ir preprocessor bind ko wiki  # 컬렉션에 연결하고 재인덱싱
 ```
 
-요약의 `deactivated`는 호환성을 위해 유지한 이름이며, 해당 경로의 `documents` 행은 실제로 삭제됩니다.
+`ko` 바인딩 시 측정 기반 한국어 라우팅 기본값(`fused_strong_product: 0.05`)도 해당 컬렉션에 기록된다; 명시적 `routing:` 설정이 항상 우선한다. 컬렉션별 라우팅 오버라이드(`fused_strong_floor/product`, `bm25_strong_floor/gap`)는 `config.yml`에 두며, 검색에 포함된 모든 컬렉션이 같은 값일 때만 적용된다.
 
-**임베딩 작업:**
+어떤 실행 파일이든 전처리기가 될 수 있다: stdin으로 UTF-8 라인 입력 → stdout으로 0 또는 1개의 토큰화된 라인 출력, 라인 간 프로세스 유지, ASCII 단일 단어 라인은 변경 없이 통과. lindera 처리량: M-시리즈 기준 한국어 문서 ~5,600개/초.
 
-```bash
-# 텍스트와 벡터를 한 명령으로 동기화
-ir sync notes
+**효과** (MIRACL-Korean):
 
-# 증분 임베딩 (새로운/변경된 문서만)
-ir embed                     # 텍스트 동기화 후 미임베딩 콘텐츠 처리
-ir embed notes               # 특정 컬렉션
-
-# 전체 재임베딩 강제
-ir embed notes --force       # 모든 벡터 재계산
-```
-
-**성능 특성:**
-
-- 초기 인덱싱: 빠름 (모델 없음, 순수 텍스트 추출)
-- 증분 업데이트: 변경된 파일만 처리
-- 해시 비교: 수천 개 파일도 즉시 처리
-- 임베딩: 첫 실행은 느림, 증분 업데이트는 빠름
-
-**예제 워크플로우:**
-
-```bash
-# 월요일: 초기 설정
-ir collection add notes ~/notes
-ir sync notes                # 500개 파일 인덱싱 및 임베딩
-
-# 화요일: 3개 파일 추가, 2개 수정
-ir sync notes                # 5개 문서 갱신 후 새 해시만 임베딩
-
-# 수요일: 1개 파일 삭제
-ir sync notes                # 문서 행 삭제; 해시 기반 캐시는 재사용 가능
-```
-
-증분 방식으로 인해 성능 저하 없이 `ir update`를 자주 실행할 수 있습니다 — 변경된 콘텐츠만 처리됩니다.
+| 전처리기 | BM25 nDCG@10 |
+|---|---|
+| 없음 | 0.00 |
+| lindera (`ko`) | 0.73 (50k 문서 샘플) |
 
 </details>
 
 <details>
 <summary><strong>MCP 서버 — Claude Desktop / Claude Code</strong></summary>
 
-`ir mcp`는 Model Context Protocol 서버를 실행하여 Claude가 인덱싱된 문서를 직접 검색할 수 있게 합니다.
-
-**Claude Desktop** (`~/.config/claude/claude_desktop_config.json`):
-
 ```json
-{
-  "mcpServers": {
-    "ir": {
-      "command": "ir",
-      "args": ["mcp"]
-    }
-  }
-}
+{ "mcpServers": { "ir": { "command": "ir", "args": ["mcp"] } } }
 ```
 
-**Claude Code** (프로젝트 루트의 `.mcp.json` 또는 `~/.claude/mcp.json`):
+도구: `search` (`mode`, `limit`, `min_score`, `collections`, `filter` 지원), `get`, `multi_get`, `status`, `update`.
 
-```json
-{
-  "mcpServers": {
-    "ir": {
-      "command": "ir",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-다섯 가지 도구가 제공됩니다:
-
-| 도구 | 설명 |
-|------|------|
-| `search` | 하이브리드 BM25+벡터 검색. 경로, 제목, 점수, 스니펫 반환. `mode`, `limit`, `min_score`, `collections`, `full`(전문 포함), `include_chunk`(청크 텍스트 포함), `filter`(`{field, op, value}` 객체 배열, AND 결합) 파라미터 지원. |
-| `get` | 경로로 문서 조회 (정확 → 접미 → 부분 일치). `collections`, `section`(헤딩 텍스트, 대소문자 무관), `offset`(문자 오프셋), `max_chars`(잘라내기) 파라미터 지원. |
-| `multi_get` | 문서 일괄 조회. `paths[]`, `collections`, `max_chars`(각 문서 잘라내기) 파라미터. `found`와 `not_found` 반환. |
-| `status` | 인덱스 상태 — 컬렉션 이름, 문서 수, DB 크기, 데몬 상태. |
-| `update` | 파일 변경 후 컬렉션 재인덱싱. `collection`과 `force` 파라미터 지원. |
-
-`filter` 배열 예시: `{"field": "modified_at", "op": ">=", "value": "2024-01-01"}`. 필드: `path`, `modified_at`, `created_at`, `meta.<이름>`. 연산자: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~`(포함), `!~`(미포함).
-
-**HTTP 모드** (원격 접속 또는 멀티 클라이언트):
+원격/멀티 클라이언트용 HTTP 모드:
 
 ```bash
-ir mcp --http 3620                              # 전체 인터페이스, 포트 3620
-ir mcp --http 3620 --cors '*'                   # 모든 브라우저 출처 허용 (와일드카드)
-ir mcp --http 3620 --cors 'https://app.example.com'  # 특정 출처만 허용
+ir mcp --http 3620 [--cors '*' | --cors 'https://app.example.com']
 ```
 
-클라이언트를 `http://<host>:3620/mcp`로 설정합니다. 첫 검색 도구 호출 시 데몬이 자동 시작됩니다.
-
-`--cors`는 브라우저 클라이언트(웹 앱, Claude.ai 웹)가 연결할 수 있도록 `Access-Control-Allow-Origin`을 설정합니다. `--cors '*'`는 rmcp의 DNS 리바인딩 호스트 검사도 비활성화하므로 신뢰할 수 있는 네트워크에서만 사용하세요. `--cors` 없이 실행 시 CORS 헤더가 설정되지 않습니다(curl/CLI 클라이언트에는 영향 없음).
-
-> **보안 주의:** HTTP 모드는 인증 없이 전체 인터페이스에 바인딩됩니다. 신뢰할 수 있는 네트워크에서만 노출하세요. `update` 도구는 재인덱싱을 유발할 수 있으므로 로컬 쓰기 권한 서비스로 취급하세요.
+> HTTP 모드는 인증 없이 전체 인터페이스에 바인딩된다 — 신뢰할 수 있는 네트워크에서만 사용할 것.
 
 </details>
 
 <details>
-<summary><strong>전처리기 — 한국어 / 일본어 / 중국어</strong></summary>
+<summary><strong>벤치마크 및 재현</strong></summary>
 
-전처리기는 BM25 인덱싱 전에 텍스트를 형태소 분석합니다. 전처리기 없이는 교착어 형식("이스탄불의", "東京都")이 하나의 FTS 토큰으로 처리되어 형태소 단위 쿼리와 매칭되지 않습니다. 인덱싱 시와 쿼리 시 동일한 전처리기가 적용됩니다.
-
-**한국어 (lindera, Mode::Decompose):**
+위의 모든 수치는 동봉된 하네스로 재현 가능하다:
 
 ```bash
-ir preprocessor install ko          # 공식 lindera CLI + ko-dic 다운로드, "ko" 등록
-                                    # 설치 후 컬렉션 바인딩 피커 표시
-ir collection add wiki ~/wiki       # 컬렉션 추가 (아직 없는 경우)
-ir preprocessor bind ko wiki        # "ko"를 컬렉션에 연결하고 재인덱싱
-ir search "서울 지하철" -c wiki
+scripts/bench.sh nfcorpus            # 모드별 전체 표, git 해시별 캐시
+scripts/bench.sh miracl-ko --size 50000 --seed 42
+bash scripts/preship.sh              # 픽스처 기반 안정성 / 속도 / 품질 게이트
 ```
 
-`ir preprocessor install ko`는 lindera 공식 GitHub 릴리즈에서 lindera CLI 바이너리와 ko-dic 사전을 다운로드합니다. 지원 플랫폼: **macOS** (arm64, x86\_64) 및 **Linux** (x86\_64, aarch64). 별도 시스템 의존성이나 Rust 툴체인이 필요 없습니다. 설치 시 컬렉션 바인딩 피커가 표시됩니다.
-내장 `ko` alias를 바인딩하면 해당 컬렉션에 현재 한국어 routing 기본값도 함께 기록됩니다:
+실행은 재개 가능하고 (쿼리별 진행 상태가 크래시를 견딤) macOS에서는 메모리 감시기가 보호한다. 과거 BEIR 결과 (이전 파이프라인 설정): ArguAna에서 재순위화가 순수 벡터 대비 최대 +14.5% nDCG@10; 영어 코퍼스에서 융합 단독은 순수 벡터보다 유의미하게 낫지 않았다 — tier-2의 가치는 재순위기에 있다.
 
-```yaml
-routing:
-  fused_strong_product: 0.05
-```
-
-이 값은 bind 시점에 써 넣는 기본값이며, 숨겨진 런타임 special case가 아닙니다. 이미 `routing:`을 직접 설정한 경우에는 그 명시적 설정이 우선합니다.
-
-**컬렉션별 routing override** (`config.yml`, 선택):
-
-```yaml
-collections:
-  - name: wiki-ko
-    path: ~/wiki
-    preprocessor: [ko]
-    routing:
-      fused_strong_product: 0.05
-```
-
-특정 컬렉션에만 BM25/fused strong-signal threshold를 다르게 적용할 때 사용합니다. 지원 필드:
-
-- `fused_strong_floor`
-- `fused_strong_product`
-- `bm25_strong_floor`
-- `bm25_strong_gap`
-
-override는 검색에 포함된 모든 컬렉션이 같은 값을 명시했을 때만 적용됩니다. 서로 다른 override가 섞인 multi-collection 검색은 전역 기본 threshold로 되돌아갑니다.
-
-**일본어:**
-
-```bash
-ir preprocessor install ja    # 일본어 (lindera + ipadic)
-```
-
-**중국어 (lindera + jieba, Mode::Decompose):**
-
-```bash
-ir preprocessor install zh          # lindera CLI + jieba 사전 다운로드, "zh" 등록
-ir collection add notes ~/notes     # 컬렉션 추가
-ir preprocessor bind zh notes       # "zh"를 컬렉션에 연결하고 재인덱싱
-ir search "机器学习" -c notes
-```
-
-`ir preprocessor install zh`는 lindera 공식 GitHub 릴리즈에서 lindera CLI 바이너리와 jieba 분절 사전을 다운로드합니다 (`ko`/`ja`와 동일 바이너리, 다른 사전). 지원 플랫폼: **macOS** (arm64, x86\_64) 및 **Linux** (x86\_64, aarch64).
-
-`ko`와 달리 `zh` 바인딩 시 routing override가 자동 적용되지 않습니다. 전역 strong-signal threshold가 적용됩니다. 컬렉션별 `routing:` 블록을 직접 추가하세요.
-
-**제한사항:** 불용어 필터링 없음. 기능어(的、了、在、是 등)가 인덱스 항목으로 남습니다. BM25 정밀도가 기능어 중심 쿼리에서 낮을 수 있으며, hybrid+rerank로 보완됩니다.
-
-**관리:**
-
-```bash
-ir preprocessor list
-ir preprocessor remove ko
-```
-
-프로토콜은 stdin/stdout 라인 단위: UTF-8 한 줄 입력, 토큰화된 한 줄 출력 (모든 토큰이 필터링된 경우 출력 없음), 프로세스는 라인 간 유지. ASCII 단일 단어 줄은 변경 없이 통과시켜야 함 — `ir`가 출력 없는 줄을 감지하기 위해 내부 sentinel 토큰을 사용. 이 프로토콜을 따르는 실행 파일은 모두 등록 가능.
-
-lindera 처리 속도: M-시리즈 Mac 기준 약 5,600 문서/초 · 1.8 MB/초. 시작 시간 거의 없음 (Rust 바이너리, 내장 사전).
-
-**한국어 BM25 벤치마크** (MIRACL-Korean, 쿼리 213개):
-
-| 전처리기 | nDCG@10 | 비고 |
-|---|---|---|
-| 없음 | 0.0009 | 교착어 토큰 매칭 불가 |
-| lindera | 0.0460 | 형태소 분석으로 50배 향상 |
-| lindera hybrid+rerank | **0.8411** | 2,835 패시지 기준 거의 최고 성능 |
-
-복합어 분해 벤치마크 (복합어 내 구성 요소를 타겟으로 한 쿼리 50개):
-
-| 전처리기 | nDCG@10 | 비고 |
-|---|---|---|
-| 없음 | 0.0000 | FTS 인덱스에 구성 요소 없음 |
-| lindera | **0.6326** | Mode::Decompose로 복합어 분해 |
-
-상세 결과 및 근거: [research/experiment.md](research/experiment.md)
-`scripts/bench.sh <dataset>`는 모드별 표(`bm25`, `vector`, `hybrid`)를 출력하고 전체 JSON 결과를 `logs/results/<dataset>/`에 캐시합니다.
-BM25가 아닌 벤치마크 실행에서는 래퍼가 tier-2를 전용 확장기 + 재순위기 경로로 고정하고 점수 계산 전에 벤치마크 데몬을 다시 시작합니다. 따라서 로컬 Qwen 통합 GGUF나 이전 데몬 상태 때문에 벤치마크 파이프라인이 조용히 바뀌지 않습니다.
-머신이 prepare/index/embed 이후 점수 계산 전에 종료되면, 같은 `scripts/bench.sh <dataset>` 명령을 다시 실행했을 때 처음부터 다시 만들지 않고 준비된 컬렉션에서 재개합니다. 점수 계산도 자동으로 재개됩니다. `scripts/beir-eval.py run --output ...`는 쿼리별 진행 상태를 `<output>.partial/`에 저장하고, 다시 실행하면 그 지점부터 이어서 계산합니다.
-대규모 코퍼스는 `--size N --seed N`으로 샘플링한 풀에서 벤치마크할 수 있습니다. MIRACL-Ko는 현재 연구 기본값으로 `scripts/bench.sh miracl-ko --size 50000`을 사용합니다. `10000` docs는 풀 크기 연구상 최소 안정 샘플이지만, 점수가 너무 높아 세밀한 순위 비교에는 포화되는 경향이 있기 때문입니다.
-유지보수용 단축 진입점은 `scripts/research-harness.sh`입니다. baseline 고정, signal 수집, threshold sweep, 그리고 shortlist threshold의 holdout 자동 검증 흐름까지 감싸며, threshold 경계 근처를 촘촘히 보려면 `validate-thresholds --products ...`로 정확한 fused 값을 직접 검증할 수 있습니다. 자세한 절차는 [research/experiment.md](research/experiment.md)에 정리되어 있습니다.
-현재 연구 방향은 다음과 같습니다.
-
-- `fiqa`는 현재 fused threshold를 유지
-- 한국어 threshold 연구는 `miracl-ko --size 50000` 기준으로 진행
-- learned router보다 먼저 stricter fused gating을 검증
-- router는 holdout에서 단순 threshold gating보다 분명히 나아지기 전까지는 오프라인 연구로만 유지
-
-Tier-2 router 연구는 이 흐름과 분리해 둡니다. 먼저 `bash scripts/signal-sweep.sh --dataset miracl-ko --size 50000 --pools 3 --tier1`로 router용 signal을 수집한 뒤, `bash scripts/router-data.sh ko`로 한국어 전용 `smoltrain` 번들을 만드세요. holdout 평가는 기본 런타임을 바꾸지 않고 `scripts/router-bench.py`로 오프라인에서 진행합니다.
-macOS에서는 `scripts/bench.sh`가 기본적으로 안전 감시기와 함께 실행됩니다. 속도를 위해 Metal은 유지하되, 시스템 여유 메모리가 너무 낮아지거나 swapout이 시작되거나 `ir`가 CPU fallback처럼 과도한 CPU를 몇 차례 연속 사용하면 벤치마크를 중단합니다. `IR_BENCH_MIN_FREE_PCT`, `IR_BENCH_MAX_IR_CPU_PCT`, `IR_BENCH_CPU_STRIKES`로 조정할 수 있고, `IR_BENCH_GUARD=0`으로 끌 수 있습니다.
-
-</details>
-
-<details>
-<summary><strong>검색 파이프라인</strong></summary>
-
-```
-쿼리
-  │
-  ├─ BM25 탐색 ──► 점수 ≥ 0.75 AND 차이 ≥ 0.10? ──► 즉시 반환
-  │
-  ├─ 확장기 있음:  확장 → lex/vec/hyde 서브쿼리 → RRF 융합
-  ├─ 확장기 없음:  BM25 + 벡터 → 점수 융합 (0.80·벡터 + 0.20·BM25)
-  │
-  └─ 재순위기: 최종 = 0.40·융합 + 0.60·P(관련)
-```
-
-확장기와 재순위기 출력은 SQLite에 캐시됩니다. 반복 쿼리는 LLM 추론을 건너뜁니다.
-
-</details>
-
-<details>
-<summary><strong>벤치마크 — BEIR (4개 데이터셋, nDCG@10)</strong></summary>
-
-EmbeddingGemma 300M 임베딩 + qmd-expander-1.7B + Qwen3-Reranker-0.6B.
-
-| 데이터셋 | BM25 | 벡터 | 하이브리드 | +재순위 | LLM 향상 |
-|---|---|---|---|---|---|
-| NFCorpus (323q) | 0.2046 | 0.3898 | 0.3954 | **0.4001** | +1.2% |
-| SciFact (300q) | 0.0500 | 0.7847 | 0.7873 | **0.7797** | −1.0% |
-| FiQA (648q) | 0.0298 | 0.4324 | 0.4266 | **0.4567** | +7.1% |
-| ArguAna (1406q) | 0.0012 | 0.4264 | 0.4263 | **0.4879** | +14.5% |
-
-BM25 융합은 어느 데이터셋에서도 순수 벡터 대비 통계적으로 유의미한 향상 없음 (paired t-test). 재순위 향상은 대화형/논증 검색 작업에서 가장 큼.
-
-재현 방법: [research/experiment.md](research/experiment.md)
+v0.17은 이 코퍼스들에서 탐구한 **기본 비활성화** 실험 연구 인프라를 포함한다: 재순위기 후보 풀을 넓히는 문서 유사도 그래프 (희소 결과 코퍼스에서 유의미), 그리고 근사 kNN용 선택적 HNSW 인덱스 (usearch) — 검증(MIRACL-ko 50k)에서 정확 검색과 top-10 일치율 99.2%, nDCG@10은 정확 검색과 동일. 기본 동작은 전혀 바뀌지 않는다; 세부 사항과 측정 결과는 `CHANGELOG.md` 참고.
 
 </details>
 
 <details>
 <summary><strong>qmd와 비교</strong></summary>
 
-ir은 [qmd](https://github.com/tobi/qmd)의 Rust 포트로, 다른 저장소 모델과 퍼시스턴트 데몬을 갖춤.
+ir은 [qmd](https://github.com/tobi/qmd)의 Rust 포트로, 저장소 모델이 다르고 퍼시스턴트 데몬을 갖췄다.
 
 | | qmd | ir |
 |---|---|---|
-| 저장소 | 모든 컬렉션에 단일 SQLite | 컬렉션별 SQLite — `rm name.sqlite`로 삭제 |
-| 동시 쓰기 | 공유 WAL 저널 | 컬렉션별 독립 WAL |
-| sqlite-vec | 동적 로드 `.so` | 정적 컴파일 |
-| 프로세스 모델 | 쿼리마다 스폰 | 데몬이 모델 유지 |
-| LLM 캐시 | 재순위 점수 (컬렉션별) | 재순위 점수 + 확장기 출력 (전역) |
-| 품질 (NFCorpus nDCG@10) | 미공개 | 0.4001 |
-
-**성능** (macOS M4 Max, 동일 모델·쿼리):
-
-| | ir | qmd | 비율 |
-|---|---:|---:|---|
-| **콜드** (캐시 없음) | 3.0s | 9.5s | **3×** |
-| **웜** (데몬 + 캐시 활성) | 30ms | 840ms | **28×** |
-
-콜드 차이: ir은 재순위 후보 최대 20개 vs qmd 40개. 웜 차이: qmd는 쿼리마다 ~800ms 프로세스 스폰 + JS 런타임 부담; ir 데몬 왕복은 30ms (임베딩 + kNN만).
+| 저장소 | 단일 SQLite | 컬렉션별 SQLite (`rm name.sqlite`로 삭제) |
+| 프로세스 모델 | 쿼리마다 스폰 | 데몬이 모델 상주 유지 |
+| LLM 캐시 | 재순위 점수 | 재순위 점수 + 확장기 출력 |
+| 콜드 / 웜 쿼리 (M4 Max) | 9.5s / 840ms | **3.0s / 30ms** |
 
 </details>
 
 <details>
-<summary><strong>개발</strong></summary>
+<summary><strong>개발 및 스키마</strong></summary>
 
 ```bash
-cargo build                  # 디버그 빌드
-cargo build --release        # 릴리즈 빌드
-cargo test                   # 단위 테스트 (모델 불필요)
-cargo test -- --ignored      # 모델 의존 테스트 (모델 필요)
-cargo run --bin eval -- --data test-data/nfcorpus --mode all
+cargo build [--release]
+cargo test                   # 모델 불필요
+cargo test -- --ignored      # 모델 의존 테스트
 ```
+
+컬렉션별 스키마: `content` (해시 → 텍스트), `documents`, `documents_fts` (FTS5), `vectors_vec` (sqlite-vec, 코사인), `content_vectors` (청크 메타데이터), `llm_cache` (재순위 점수), `document_metadata` (프론트매터), `meta` — 그리고 0.17부터 기본적으로 비어 있는 연구 테이블 (`doc_graph`, `ann_keys`). 전역 `expander_cache.sqlite`는 확장 출력을 캐시한다. 스테이지드 비동기 데몬 설계는 [research/pipeline.md](research/pipeline.md) 참고.
 
 </details>
 
-<details>
-<summary><strong>스키마</strong></summary>
+## 라이선스
 
-각 컬렉션 데이터베이스 (`~/.config/ir/collections/<name>.sqlite`):
-
-```
-content          — 해시 → 전체 텍스트 (내용 주소)
-documents        — 경로, 제목, 해시, 호환성용 active 플래그
-documents_fts    — FTS5 가상 테이블 (porter 토크나이저)
-vectors_vec      — sqlite-vec kNN (768차원 코사인, EmbeddingGemma 형식)
-content_vectors  — 청크 메타데이터 (해시, 순번, 위치, 모델)
-llm_cache        — 재순위 점수 캐시 (sha256(모델+쿼리+문서) → 점수)
-meta             — 컬렉션 메타데이터 (이름, 스키마 버전)
-```
-
-전역 캐시 (`~/.config/ir/expander_cache.sqlite`):
-
-```
-expander_cache   — sha256(모델+쿼리) → JSON Vec<SubQuery>
-```
-
-트리거가 insert/update/delete 시 `documents_fts`를 `documents`와 동기화합니다.
-
-</details>
+[MIT](LICENSE)
