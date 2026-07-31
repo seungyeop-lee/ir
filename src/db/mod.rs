@@ -2,6 +2,7 @@
 // sqlite-vec is registered as a static extension before any connection opens.
 // docs: https://alexgarcia.xyz/sqlite-vec/rust.html
 
+pub mod ann;
 pub mod expander_cache;
 pub mod fts;
 pub mod graph;

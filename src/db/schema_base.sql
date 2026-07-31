@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS doc_graph (
     PRIMARY KEY (doc_id, neighbor_id)
 );
 
+-- ANN sidecar key mapping (research: IR_ANN=hnsw). usearch keys are u64;
+-- this table allocates stable integer keys per embedded chunk (hash_seq).
+CREATE TABLE IF NOT EXISTS ann_keys (
+    key      INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash_seq TEXT NOT NULL UNIQUE
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_documents_hash   ON documents (hash);
 CREATE INDEX IF NOT EXISTS idx_documents_active ON documents (active);

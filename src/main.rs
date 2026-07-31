@@ -1165,6 +1165,7 @@ fn handle_sync_phases(
             println!("embedding '{}'…", db.name);
             println!("  0 documents, 0 chunks embedded");
             maybe_build_graph(&db)?;
+            maybe_sync_ann(&db)?;
         }
         return Ok(());
     }
@@ -1178,12 +1179,14 @@ fn handle_sync_phases(
         if count == 0 {
             println!("  0 documents, 0 chunks embedded");
             maybe_build_graph(&db)?;
+            maybe_sync_ann(&db)?;
             continue;
         }
         let opts = index::embed::EmbedOptions { force: force_embed };
         let (docs, chunks) = index::embed::embed(&db, &embedder, &opts, llm::models::EMBEDDING)?;
         println!("  {} documents, {} chunks embedded", docs, chunks);
         maybe_build_graph(&db)?;
+        maybe_sync_ann(&db)?;
     }
     Ok(())
 }
@@ -1205,6 +1208,20 @@ fn maybe_build_graph(db: &db::CollectionDb) -> Result<()> {
     println!("building doc graph for '{}' (k={k})…", db.name);
     let (docs, edges) = db::graph::build(db.conn(), k)?;
     println!("  {} documents, {} edges", docs, edges);
+    Ok(())
+}
+
+/// Research: sync the HNSW ANN sidecar after embedding (IR_ANN=hnsw).
+/// Incremental — only newly embedded chunks are added; model/dim changes
+/// rebuild from stored vectors without model inference.
+fn maybe_sync_ann(db: &db::CollectionDb) -> Result<()> {
+    if !db::ann::enabled() {
+        return Ok(());
+    }
+    let (total, added) = db::ann::sync(db.conn())?;
+    if added > 0 || total > 0 {
+        println!("  ann index: {total} vectors ({added} added)");
+    }
     Ok(())
 }
 

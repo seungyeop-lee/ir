@@ -77,7 +77,11 @@ pub fn search(
     limit: usize,
 ) -> Result<Vec<SearchResult>> {
     // Over-fetch to deduplicate (multiple chunks per doc).
-    let raw = knn(conn, query_embedding, limit * 4)?;
+    // Research (IR_ANN=hnsw): ANN sidecar when present and fresh; exact otherwise.
+    let raw = match super::ann::search(conn, query_embedding, limit * 4) {
+        Some(hits) => hits,
+        None => knn(conn, query_embedding, limit * 4)?,
+    };
     if raw.is_empty() {
         return Ok(vec![]);
     }
