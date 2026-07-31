@@ -47,9 +47,8 @@ impl PreprocessHandle {
         let program = expanded.as_os_str();
         // Preprocessor commands embed variable references in args (e.g. --dict $IR_DIR/preprocessors/jieba);
         // Command::args() does not invoke a shell, so variables must be expanded explicitly.
-        let args: Vec<std::ffi::OsString> = parts
-            .map(|a| expand_path(a).into_os_string())
-            .collect();
+        let args: Vec<std::ffi::OsString> =
+            parts.map(|a| expand_path(a).into_os_string()).collect();
 
         match Command::new(program)
             .args(&args)
@@ -292,11 +291,24 @@ mod tests {
         path
     }
 
+    /// Spawn with retry: on Linux, a concurrently forked test child can hold
+    /// the just-written script's write fd, making exec fail with ETXTBSY
+    /// ("Text file busy") until that child closes it. Bounded retry rides it out.
+    fn spawn_dot_filter(path: &str) -> PreprocessHandle {
+        for _ in 0..20 {
+            if let Some(h) = PreprocessHandle::spawn(path) {
+                return h;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        panic!("preprocessor test script failed to spawn after retries");
+    }
+
     #[cfg(unix)]
     #[test]
     fn sentinel_handles_dropped_line() {
         let path = write_dot_filter_script();
-        let mut handle = PreprocessHandle::spawn(&path).unwrap();
+        let mut handle = spawn_dot_filter(&path);
         // Punctuation-only line → filter drops it → sentinel must unblock read_line()
         let out = handle.process_line(".").unwrap();
         assert_eq!(
@@ -312,7 +324,7 @@ mod tests {
     #[test]
     fn sentinel_handles_mixed_document() {
         let path = write_dot_filter_script();
-        let mut handle = PreprocessHandle::spawn(&path).unwrap();
+        let mut handle = spawn_dot_filter(&path);
         let text = "first line\n.\nsecond line\n.\nthird line";
         let out = handle.process_text(text).unwrap();
         assert_eq!(out, "first line\n\nsecond line\n\nthird line");
@@ -346,14 +358,23 @@ mod tests {
 
         // Segmentation: jieba must split 你好世界 into separate tokens
         let out = handle.process_line("你好世界").unwrap();
-        assert_ne!(out, "你好世界", "jieba must segment Chinese words (got identical output)");
-        assert!(!out.is_empty(), "jieba must produce output for Chinese text");
+        assert_ne!(
+            out, "你好世界",
+            "jieba must segment Chinese words (got identical output)"
+        );
+        assert!(
+            !out.is_empty(),
+            "jieba must produce output for Chinese text"
+        );
 
         // ASCII must pass through unchanged — the sentinel protocol relies on this.
         // (Cannot use IRSENTINEL itself as content: the read loop would treat its echo as the
         // sentinel terminator and return "" — use a different ASCII word instead.)
         let ascii_out = handle.process_line("hello").unwrap();
-        assert_eq!(ascii_out, "hello", "ASCII words must pass through zh preprocessor unchanged");
+        assert_eq!(
+            ascii_out, "hello",
+            "ASCII words must pass through zh preprocessor unchanged"
+        );
 
         // Punctuation line: must not deadlock; result is either passed through or empty
         let _ = handle.process_line("。").unwrap();
