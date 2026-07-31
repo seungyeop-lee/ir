@@ -61,6 +61,12 @@ Results cached at `logs/results/{dataset}/{git7}.json` (gitignored).
 | `IR_GRAPH_SEEDS` | `10` | Research: number of top results used as propagation seeds |
 | `IR_GRAPH_LAMBDA` | `0.2` | Research: consensus blend weight (T1 consensus) |
 | `IR_GRAPH_RRF_WEIGHT` | `0.5` | Research: graph-mass weight in RRF mode |
+| `IR_GRAPH_T1_EXPAND` | unset | Research: tier-1 cap injection into fused list (measured no-op — cosine neighbors already in pool) |
+| `IR_GRAPH_T1_INJECT` | `30` | Research: max docs injected by T1 expand |
+| `IR_GRAPH_T2_INJECT` | `30` | Research: max docs injected by T2 expand (saturates at 30 — inject60 = 323/323 ties) |
+| `IR_GRAPH_AS_EXPANDER` | unset | Research: skip LLM expander at tier 2; graph injection + reranker only (quality ≈ rerank-only) |
+| `IR_RERANK_WINDOW_OVERRIDE` | `20` | Research: tier-2 rerank window size (GAR pool expansion needs window ≥ pool; nfcorpus +0.016 at 100) |
+| `IR_RERANK_KEEP_WINDOW` | unset | Research: judged rerank window always outranks un-judged tail — fixes score-scale mismatch in the no-expansion rerank path (exact no-op on expander path) |
 | `IR_BENCH_MAX_SWAPOUT_DELTA` | `0` | Research: bench watchdog tolerance for system swapouts before abort (bench-env.sh) |
 
 Config dir precedence: `IR_CONFIG_DIR` → `XDG_CONFIG_HOME/ir` (deprecated) → `~/.config/ir`
