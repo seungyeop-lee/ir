@@ -7,7 +7,6 @@
 
 ### Dev / Benchmark Tooling
 
-- **Corrected ANN validation** (supersedes the 0.17.0 figures): the original "99.91% overlap / 244→188ms" came from a benchmark whose daemon had silently fallen back to exact search (measuring exact-vs-exact). With the ANN path verified active on all 213 queries and a same-session exact baseline, MIRACL-ko 50k results are: top-10 overlap vs exact **98.7% at ef=96, 99.2% at ef=200, 99.8% at ef=400**; nDCG@10 **0.9170 exact = 0.9170 at ef≥200** (0.9123 at ef=96); tier-1 median latency **198ms exact → 162ms ANN**; index build 79s / 162MB. Recall rises monotonically with ef, confirming a correct measurement.
 - **Consistent research-flag parsing** (`src/config/mod.rs`): `IR_ANN`, `IR_GRAPH_BUILD`, and the `IR_GRAPH_*` flags now share one case-insensitive boolean parser, so `IR_ANN=TRUE` and `IR_GRAPH_BUILD=TRUE` behave identically (previously some were case-sensitive, producing silently wrong A/B sweeps).
 - **Guarded research numeric env inputs**: `IR_GRAPH_DECAY`/`IR_GRAPH_LAMBDA` reject non-finite values (a NaN silently scrambled rank order); `IR_GRAPH_K` is clamped to a sane range.
 - **`usearch` pinned to `=2.26.0`**: the vendored C++ engine is exact-pinned rather than caret-ranged, so `cargo install`/`cargo update` cannot pull unaudited 2.x.
@@ -24,7 +23,7 @@
 - **Research: rerank-window experiments** (`src/search/hybrid.rs`, `src/search/graph.rs`): `IR_RERANK_WINDOW_OVERRIDE` (tier-2 rerank window, default 20), `IR_GRAPH_T1_EXPAND`/`IR_GRAPH_T1_INJECT` (tier-1 cap injection), `IR_GRAPH_T2_INJECT` (T2 injection cap), `IR_GRAPH_AS_EXPANDER` (skip LLM expander; graph + reranker only). All research-only, inert by default.
 - **Research: `IR_RERANK_KEEP_WINDOW`** (`src/search/hybrid.rs`): keeps the judged rerank window above the un-judged tail. Fixes a score-scale mismatch in the rerank-without-expansion path where blended scores (0.4·fused + 0.6·P) competed against raw fused tail scores, demoting judged docs (measured on nfcorpus: R@100 0.35→0.24). Exact no-op on the expansion (RRF) path — 323/323 identical results. Off by default.
 - **Bench fix** (`scripts/beir-eval.py`): `--mode tier1` was passed verbatim to the `ir` binary on the non-signal path (invalid mode → every query silently scored as an empty list); now translated to hybrid + `IR_FORCE_TIER1_ONLY` on both paths.
-- **Research: HNSW ANN sidecar** (`src/db/ann.rs`, new dep `usearch`): `IR_ANN=hnsw` builds a per-collection usearch index file next to the sqlite DB during `ir embed` and routes vector kNN through it when exactly in sync with `vectors_vec` (stale/absent → exact brute-force fallback, so results never silently cover a partial vector set). New `ann_keys` table (idempotent, ignored by older binaries). Knobs: `IR_ANN_M`, `IR_ANN_EF_CONSTRUCTION`, `IR_ANN_EF`. Research-only, inert by default. (Recall/latency figures corrected in 0.17.1 — see below.)
+- **Research: HNSW ANN sidecar** (`src/db/ann.rs`, new dep `usearch`): `IR_ANN=hnsw` builds a per-collection usearch index file next to the sqlite DB during `ir embed` and routes vector kNN through it when exactly in sync with `vectors_vec` (stale/absent → exact brute-force fallback, so results never silently cover a partial vector set). New `ann_keys` table (idempotent, ignored by older binaries). Knobs: `IR_ANN_M`, `IR_ANN_EF_CONSTRUCTION`, `IR_ANN_EF`. Research-only, inert by default.
 - `llm::from_bytes` promoted to `pub` for embedding-blob decoding in research tooling.
 
 ### Measured results (research flags; public corpora)
@@ -38,7 +37,7 @@ All paired per-query t-tests; baselines at default config unless noted.
 | Rerank window 100 + keep-window, no expander | FiQA (57.6k) | **+0.041 nDCG@10 over fusion** (t=+6.6); MIRACL-ko +0.046 (t=+5.1); Allganize-KO +0.033 (t=+3.6) — the 0.6B reranker captures the full tier-2 lift on these corpora |
 | `IR_RERANK_KEEP_WINDOW` | NFCorpus | fixes rerank-without-expansion (R@100 0.24 → 0.35); exact no-op on the expansion path (323/323 identical) |
 | Graph build (blocked scoring) | 61k chunks | 59min → **44s**, identical edge set |
-| HNSW sidecar (`IR_ANN=hnsw`) | MIRACL-ko 50k | see 0.17.1 for corrected, methodology-verified figures |
+| HNSW sidecar (`IR_ANN=hnsw`) | MIRACL-ko 50k | 99.2% top-10 overlap vs exact at ef=200 (98.7% at ef=96, 99.8% at ef=400); nDCG@10 = exact (0.917); tier-1 median 198ms → 162ms; build 79s / 162MB |
 
 ## [0.16.0] - 2026-07-15
 
