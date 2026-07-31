@@ -776,14 +776,36 @@ fn rerank(
         }
     }
 
-    let mut all: Vec<SearchResult> = to_rerank
-        .iter()
-        .cloned()
-        .chain(rest.iter().cloned())
-        .collect();
-    SearchResult::sort_desc(&mut all);
+    let mut all: Vec<SearchResult>;
+    if rerank_keep_window() {
+        // Research (IR_RERANK_KEEP_WINDOW=1): judged docs always outrank the
+        // un-judged tail; the blend only orders WITHIN the window. Avoids
+        // comparing 0.4-shrunk blended scores against raw fused tail scores —
+        // without RRF's flat score scale that mismatch demotes every judged
+        // doc whose rerank P isn't high (measured: R@100 0.35→0.24 on
+        // nfcorpus rerank-without-expansion).
+        let mut win: Vec<SearchResult> = to_rerank.to_vec();
+        SearchResult::sort_desc(&mut win);
+        all = win;
+        all.extend(rest.iter().cloned());
+    } else {
+        all = to_rerank
+            .iter()
+            .cloned()
+            .chain(rest.iter().cloned())
+            .collect();
+        SearchResult::sort_desc(&mut all);
+    }
     all.truncate(limit);
     Ok(all)
+}
+
+/// Research flag: keep the reranked window above the un-judged tail (see rerank()).
+fn rerank_keep_window() -> bool {
+    matches!(
+        std::env::var("IR_RERANK_KEEP_WINDOW").ok().as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
 }
 
 fn fetch_doc_text(dbs: &[CollectionDb], hash: &str, collection: &str) -> Option<String> {
